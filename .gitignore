@@ -1,0 +1,14 @@
+# 用户密钥，永不入库
+api-key.txt
+
+# Python 产物
+__pycache__/
+*.py[cod]
+
+# 验证脚本产物（scripts/ 下 capture/smoke 类脚本统一生成在仓库根目录）
+/*.db
+/*.png
+
+# 编辑器与系统
+*~
+.DS_Store

@@ -1,0 +1,164 @@
+/* 四象限待办悬浮窗 —— 紧凑样式 */
+
+QFrame#container {
+    background-color: rgba(30, 32, 43, 236);
+    border-radius: 12px;
+}
+
+QFrame#topbar, QFrame#collapsedbar {
+    background: transparent;
+}
+
+QLabel#title {
+    color: #eceef4;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+QLabel#count {
+    color: #eceef4;
+    font-size: 12px;
+}
+
+QPushButton {
+    background-color: rgba(255, 255, 255, 20);
+    color: #eceef4;
+    border: none;
+    border-radius: 5px;
+    padding: 3px 8px;
+    font-size: 12px;
+}
+QPushButton:hover { background-color: rgba(255, 255, 255, 40); }
+QPushButton:pressed { background-color: rgba(255, 255, 255, 10); }
+
+QPushButton#collapse_btn, QPushButton#expand_btn {
+    padding: 3px 10px;
+    font-weight: 700;
+}
+
+/* 象限标题框：Q1 红 / Q2 蓝 / Q3 橙 / Q4 绿 */
+QFrame#qh_q0 { background-color: rgba(224, 78, 78, 0.52); border-radius: 5px; }
+QFrame#qh_q1 { background-color: rgba(72, 130, 214, 0.52); border-radius: 5px; }
+QFrame#qh_q2 { background-color: rgba(232, 158, 54, 0.52); border-radius: 5px; }
+QFrame#qh_q3 { background-color: rgba(96, 168, 116, 0.52); border-radius: 5px; }
+
+QLabel#qh_name { color: #ffffff; font-size: 12px; font-weight: 600; background: transparent; }
+QLabel#qh_count { color: rgba(255, 255, 255, 0.72); font-size: 11px; background: transparent; }
+
+QPushButton#hdr_btn {
+    background: rgba(255, 255, 255, 0.16);
+    color: #ffffff;
+    border-radius: 4px;
+    padding: 0;
+    font-size: 13px;
+    font-weight: 700;
+}
+QPushButton#hdr_btn:hover { background: rgba(255, 255, 255, 0.34); }
+
+/* 任务列表 */
+QListWidget { background: transparent; border: none; outline: none; }
+QListWidget::item { margin: 0; padding: 0; border: none; }
+QListWidget::item:selected { background: transparent; }
+
+/* 任务行 */
+QWidget#taskrow { background: transparent; border-radius: 5px; }
+QWidget#taskrow:hover { background-color: rgba(255, 255, 255, 10); }
+
+QPushButton#row_btn {
+    background: transparent;
+    color: #9aa0b0;
+    border-radius: 4px;
+    padding: 0;
+    font-size: 12px;
+}
+QPushButton#row_btn:hover { background: rgba(255, 255, 255, 22); color: #eceef4; }
+
+QLabel#due { color: #8b8b96; font-size: 11px; background: transparent; }
+
+QLabel#empty_hint { color: rgba(255, 255, 255, 0.28); font-size: 12px; background: transparent; }
+
+QCheckBox { spacing: 0; }
+QCheckBox::indicator { width: 14px; height: 14px; }
+
+QScrollBar:vertical { background: transparent; width: 6px; margin: 0; }
+QScrollBar::handle:vertical {
+    background: rgba(255, 255, 255, 36);
+    border-radius: 3px;
+    min-height: 18px;
+}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: transparent; }
+
+/* ---------- 对话框 / 菜单 / 提示（深色，覆盖 Qt 默认浅色主题） ---------- */
+
+QDialog, QMessageBox, QFileDialog {
+    background-color: #262832;
+    color: #e6e8f0;
+}
+QDialog QLabel, QMessageBox QLabel, QFileDialog QLabel {
+    color: #e6e8f0;
+    background: transparent;
+}
+QDialog QCheckBox, QMessageBox QCheckBox {
+    color: #e6e8f0;
+    background: transparent;
+    spacing: 4px;
+}
+
+QLineEdit, QPlainTextEdit, QTextEdit, QDateTimeEdit, QComboBox, QSpinBox {
+    background-color: rgba(255, 255, 255, 14);
+    color: #e6e8f0;
+    border: 1px solid rgba(255, 255, 255, 32);
+    border-radius: 5px;
+    padding: 4px 6px;
+    selection-background-color: rgba(72, 130, 214, 0.6);
+}
+QLineEdit:focus, QPlainTextEdit:focus, QDateTimeEdit:focus, QComboBox:focus {
+    border-color: rgba(120, 160, 230, 0.8);
+}
+
+QDialogButtonBox QPushButton, QMessageBox QPushButton {
+    min-width: 64px;
+    min-height: 24px;
+}
+
+QComboBox QAbstractItemView {
+    background-color: #2b2d3a;
+    color: #e6e8f0;
+    selection-background-color: rgba(72, 130, 214, 0.6);
+}
+
+QMenu {
+    background-color: #262832;
+    color: #e6e8f0;
+    border: 1px solid rgba(255, 255, 255, 40);
+    padding: 4px;
+}
+QMenu::item { padding: 5px 22px 5px 12px; border-radius: 4px; }
+QMenu::item:selected { background-color: rgba(255, 255, 255, 28); }
+QMenu::separator { height: 1px; background: rgba(255, 255, 255, 26); margin: 4px 8px; }
+
+QToolTip {
+    background-color: #2b2d3a;
+    color: #e6e8f0;
+    border: 1px solid rgba(255, 255, 255, 40);
+    padding: 4px 6px;
+}
+
+/* 日期选择弹出的日历 */
+QCalendarWidget QWidget { alternate-background-color: #2b2d3a; }
+QCalendarWidget QAbstractItemView:enabled {
+    background-color: #262832;
+    color: #e6e8f0;
+    selection-background-color: rgba(72, 130, 214, 0.6);
+}
+QCalendarWidget QToolButton {
+    color: #e6e8f0;
+    background: transparent;
+    icon-size: 16px;
+}
+QCalendarWidget QMenu { background-color: #2b2d3a; }
+QCalendarWidget QSpinBox {
+    background-color: rgba(255, 255, 255, 14);
+    color: #e6e8f0;
+}
