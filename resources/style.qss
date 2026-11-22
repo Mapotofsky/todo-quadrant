@@ -101,7 +101,6 @@ QDialog QLabel, QMessageBox QLabel, QFileDialog QLabel {
 }
 QDialog QCheckBox, QMessageBox QCheckBox {
     color: #e6e8f0;
-    background: transparent;
     spacing: 4px;
 }
 

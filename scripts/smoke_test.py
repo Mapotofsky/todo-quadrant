@@ -1,14 +1,11 @@
 """无头冒烟测试：用 offscreen 平台验证数据层、AI 解析、提醒与 UI 构造。"""
 import os
 import sys
+from tempfile import TemporaryDirectory
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-_DB = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "smoke_todo.db")
-if os.path.exists(_DB):
-    os.remove(_DB)
-os.environ["TODO_QUADRANT_DB"] = _DB
 
 from PyQt5.QtWidgets import QApplication  # noqa: E402
 from app import db  # noqa: E402
@@ -169,4 +166,6 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    with TemporaryDirectory() as directory:
+        os.environ["TODO_QUADRANT_DB"] = os.path.join(directory, "todo.db")
+        main()

@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
 """四象限待办悬浮窗 —— 应用入口。
 
-在 Wayland 会话下，Qt 的置顶/透明 windowFlags 会被合成器忽略，
-因此强制走 XWayland(xcb)；maleoon 无可用 GPU，禁掉 GL 探测。
+Windows 使用原生 Qt 后端。麒麟通过 XWayland(xcb) 保持置顶和透明。
 """
 import os
 import sys
 
 
 def _setup_env():
-    # 默认强制 xcb(XWayland)；可用 TODO_QUADRANT_QPA 覆盖。
-    os.environ["QT_QPA_PLATFORM"] = os.environ.get("TODO_QUADRANT_QPA", "xcb")
+    platform = "windows" if sys.platform == "win32" else "xcb"
+    os.environ["QT_QPA_PLATFORM"] = os.environ.get("TODO_QUADRANT_QPA", platform)
     os.environ.setdefault("QT_ENABLE_HIGHDPI_SCALING", "1")
     os.environ.setdefault("QT_AUTO_SCREEN_SCALE_FACTOR", "1")
     # 若窗口偏小/发虚，用 TODO_QUADRANT_SCALE=1.5 或 2 覆盖缩放因子。
@@ -46,11 +45,20 @@ def main():
     app.setStyle("fusion")
 
     db.init()
-    config.auto_load_api_key(os.path.dirname(os.path.abspath(__file__)))
+    if not getattr(sys, "frozen", False):
+        config.auto_load_api_key(os.path.dirname(os.path.abspath(__file__)))
     _load_style(app)
 
     win = FloatingWindow()
-    win.show()
+    tray = None
+    if sys.platform == "win32":
+        from app.ui.windows_tray import create_tray
+        tray = create_tray(app, win)
+        if tray is None:
+            win.setWindowFlags((win.windowFlags() & ~Qt.WindowType_Mask) | Qt.Window)
+            win.setAttribute(Qt.WA_QuitOnClose, True)
+    if tray is None:
+        win.show()
     return app.exec_()
 
 

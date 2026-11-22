@@ -40,13 +40,14 @@ class FloatingWindow(QWidget):
         super().__init__()
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.close_to_tray = False
         self.collapsed = False
         self._expanded_size = None
         self._build_ui()
         self._update_count()
         self._restore_state()
 
-        self.reminder = Reminder()
+        self.reminder = Reminder(self)
         self.reminder.task_due.connect(self._on_task_due)
 
     def _build_ui(self):
@@ -216,7 +217,15 @@ class FloatingWindow(QWidget):
 
     def closeEvent(self, e):
         self._save_state()
+        if self.close_to_tray:
+            self.hide()
+            e.ignore()
+            return
         super().closeEvent(e)
+
+    def quit(self):
+        self._save_state()
+        QApplication.instance().quit()
 
     def contextMenuEvent(self, e):
         menu = QMenu(self)
@@ -224,6 +233,8 @@ class FloatingWindow(QWidget):
         menu.addAction("AI 粘贴总结", self._ai_new)
         menu.addAction("设置", self._settings)
         menu.addAction("收起" if not self.collapsed else "展开", self._toggle_collapse)
+        if self.close_to_tray:
+            menu.addAction("隐藏到托盘", self.close)
         menu.addSeparator()
-        menu.addAction("退出", QApplication.instance().quit)
+        menu.addAction("退出", self.quit)
         menu.exec_(e.globalPos())

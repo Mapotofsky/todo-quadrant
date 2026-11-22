@@ -23,7 +23,8 @@ class TaskDialog(QDialog):
         self.setWindowTitle("新建任务" if task is None else "编辑任务")
         self.setModal(True)
         self.setMinimumWidth(420)
-        self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)
+        self.setWindowFlags((self.windowFlags() | Qt.WindowStaysOnTopHint)
+                            & ~Qt.WindowContextHelpButtonHint)
         self._task = task
 
         form = QFormLayout(self)

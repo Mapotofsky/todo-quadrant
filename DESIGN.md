@@ -2,7 +2,7 @@
 
 > 版本：v1.0（待评审）
 > 目标机器：华为擎云 L420x / 麒麟 9000C（aarch64）/ 银河麒麟桌面 V10 SP1
-> 状态：**尚未开发**。本文档经你确认后进入实现。
+> 本文记录麒麟版原始设计。Windows 运行与打包见第十四节。
 
 ---
 
@@ -133,7 +133,9 @@ todo-quadrant/
 
 ## 七、数据模型（SQLite）
 
-库文件：`~/.config/todo-quadrant/todo.db`（首次运行自动建库）。
+麒麟库文件为 `~/.config/todo-quadrant/todo.db`，Windows 库文件为
+`%LOCALAPPDATA%\TodoQuadrant\todo.db`。Windows 新位置尚无库时，通过 SQLite
+备份接口迁移旧默认位置的任务和设置，原库保留。
 
 ```sql
 CREATE TABLE tasks (
@@ -279,10 +281,11 @@ CREATE TABLE settings (
 
 ## 十四、启动与打包方式
 
-- **启动**：`cd ~/projects/todo-quadrant && /usr/bin/python3 main.py`。
+- **麒麟启动**：在源码目录运行 `/usr/bin/python3 main.py`。
   - 环境变量在 `main.py` 内自设置（`QT_QPA_PLATFORM=xcb`、缩放因子等），无需外部脚本；规避 kysec 对 home 脚本的拦截。
-- **桌面快捷方式**（可选）：`todo-quadrant.desktop`，`Exec=/usr/bin/python3 /home/ZGYD/projects/todo-quadrant/main.py`，`Terminal=false`。
-- 不做打包成二进制（PyInstaller 对 aarch64 + Qt 会显著增大体积且无必要）；本项目定位「源码 + 系统环境直接运行」。
+- **麒麟桌面快捷方式**（可选）：`scripts/install_linux_shortcut.py` 按当前源码位置生成。
+- **Windows 启动**：`python main.py` 或安装后的开始菜单入口，默认通过原生 Qt 后端在系统托盘常驻。
+- **Windows 安装包**：PyInstaller `onedir` 收集 Python、Qt 和 QSS，Inno Setup 负责安装、升级、快捷方式及卸载。SQLite 数据位于用户数据目录。
 
 ---
 

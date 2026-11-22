@@ -2,24 +2,55 @@
 import os
 import sqlite3
 import datetime
+import sys
+from contextlib import closing
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+
+def _legacy_db_path():
+    return Path.home() / ".config" / "todo-quadrant" / "todo.db"
 
 
 def _db_path():
     override = os.environ.get("TODO_QUADRANT_DB")
     if override:
-        return override
-    return os.path.join(os.path.expanduser("~"), ".config", "todo-quadrant", "todo.db")
+        return Path(override)
+    if sys.platform == "win32":
+        local = os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local"
+        return Path(local) / "TodoQuadrant" / "todo.db"
+    return _legacy_db_path()
+
+
+def _migrate_windows_db():
+    target = _db_path()
+    source = _legacy_db_path()
+    if target.exists() or not source.is_file():
+        return
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with TemporaryDirectory(dir=target.parent) as directory:
+        backup = Path(directory) / target.name
+        with closing(sqlite3.connect(source.as_uri() + "?mode=ro", uri=True)) as src:
+            with closing(sqlite3.connect(backup)) as dst:
+                src.backup(dst)
+        try:
+            backup.rename(target)
+        except FileExistsError:
+            # Windows 的 rename 不覆盖并发启动已经创建的目标库。
+            pass
 
 
 def connect():
     path = _db_path()
-    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
     return conn
 
 
 def init():
+    if sys.platform == "win32" and not os.environ.get("TODO_QUADRANT_DB"):
+        _migrate_windows_db()
     conn = connect()
     conn.executescript(
         """

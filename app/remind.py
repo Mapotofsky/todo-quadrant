@@ -1,6 +1,7 @@
-"""截止时间与到期提醒：QTimer 扫描 + 应用内信号 + notify-send。"""
+"""截止时间与到期提醒：QTimer 扫描及桌面通知。"""
 import datetime
 import subprocess
+import sys
 
 from PyQt5.QtCore import QObject, QTimer, pyqtSignal
 
@@ -44,7 +45,8 @@ class Reminder(QObject):
                 continue
             db.set_reminded(t["id"], 1)
             self.task_due.emit(t["title"], t.get("note") or "")
-            self._notify(t["title"])
+            if sys.platform != "win32":
+                self._notify(t["title"])
 
     def _notify(self, title):
         try:

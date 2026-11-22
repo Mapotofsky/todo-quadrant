@@ -36,3 +36,8 @@ QT_QPA_PLATFORM=offscreen python3 scripts/smoke_test.py           # 必须输出
 
 - SQLite 单文件（表结构见 app/db.py 的 `init()`），改表结构必须写迁移逻辑（老用户已有数据）。
 - 设置项走 settings 表 + config.py 访问函数，新增 key 同时在 config.py 登记默认值。
+
+## 提交信息
+
+- 格式为 `类型(范围): 中文动宾短句`，不加句号；说明理由写在正文，不写进主题。
+- 类型只用约定式提交的标准值：`feat`、`fix`、`docs`、`style`、`refactor`、`perf`、`test`、`build`、`ci`、`chore`、`revert`，不自行新增。
