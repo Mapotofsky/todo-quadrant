@@ -1,27 +1,58 @@
 """无头冒烟测试：用 offscreen 平台验证数据层、AI 解析、提醒与 UI 构造。"""
 import os
 import sys
+from datetime import datetime
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PyQt5.QtCore import Qt  # noqa: E402
+from PyQt5.QtTest import QTest  # noqa: E402
 from PyQt5.QtWidgets import QApplication  # noqa: E402
 from app import db  # noqa: E402
 from app import config  # noqa: E402
 from app import ai  # noqa: E402
-from app.remind import is_overdue  # noqa: E402
-from app.ui.floating_window import FloatingWindow  # noqa: E402
+from app.remind import deadline_status, is_overdue  # noqa: E402
+from app.ui.floating_window import FloatingWindow, collapsed_preview  # noqa: E402
 from app.ui.quadrant_view import quadrant_of  # noqa: E402
 from app.ui.task_dialog import TaskDialog  # noqa: E402
 from app.ui.ai_dialog import AiDialog  # noqa: E402
 from app.ui.settings_dialog import SettingsDialog  # noqa: E402
 
 
+def check_preview():
+    tomorrow = "2099-01-04 09:00"
+    earlier = "2000-01-01 09:00"
+    later = "2000-01-02 09:00"
+
+    def task(title, due_at, important=0, urgent=0, done=0):
+        return dict(title=title, due_at=due_at, important=important, urgent=urgent, done=done)
+
+    no_date = task("无日期", None, 1, 1)
+    done = task("已完成", earlier, 1, 1, 1)
+    urgent = task("紧急", later, urgent=1)
+    priority = task("重要且紧急", tomorrow, 1, 1)
+    tie = task("同日期第二条", tomorrow, 1, 1)
+    other = task("其余组最早", earlier)
+    assert collapsed_preview([done, no_date, urgent, priority, tie]) == ("重要且紧急", tomorrow)
+    assert collapsed_preview([no_date, done, other, urgent]) == ("紧急", later)
+    assert collapsed_preview([urgent, task("紧急组更早", earlier, urgent=1)]) == ("紧急组更早", earlier)
+    assert collapsed_preview([task("重要不紧急", later, important=1), other]) == ("其余组最早", earlier)
+    assert collapsed_preview([priority, task("同组更早到期", later, 1, 1)]) == ("同组更早到期", later)
+    assert collapsed_preview([no_date, done]) == ("1 项待办", None)
+    assert collapsed_preview([done]) == ("暂无待办", None)
+    assert deadline_status(later, now=datetime(2000, 1, 4, 9)) == ("逾期 2 天", True)
+    assert deadline_status(later, now=datetime(2000, 1, 2, 8, 59))[1] is False
+    assert deadline_status(later, now=datetime(2000, 1, 2, 9))[1] is True
+
+
 def main():
     app = QApplication([])
     db.init()
+    check_preview()
 
     # ---- 数据层（含截止时间）----
     tid = db.add_task("写周报", note="周五前", important=1, urgent=1, due_at="2099-01-01 10:00")
@@ -63,7 +94,10 @@ def main():
 
     # ---- 悬浮窗构造 + 分区加载 ----
     win = FloatingWindow()
+    win.setWindowFlags((win.windowFlags() & ~Qt.WindowType_Mask) | Qt.Window)
     win.show()
+    app.processEvents()
+    app.setActiveWindow(win)
     db.add_task("A", important=1, urgent=1)
     db.add_task("B", important=1, urgent=0)
     db.add_task("C", important=0, urgent=1)
@@ -79,10 +113,22 @@ def main():
     assert db.get_task(tid)["important"] == 0
     assert db.get_task(tid)["urgent"] == 1
 
-    # ---- 完成切换 ----
-    db.set_done(tid, True)
+    # ---- 键盘完成后跟随任务，原组内次序保持 ----
+    app.processEvents()
+    lst = win.quadrant.lists[2]
+    c_id = lst.item(0).data(Qt.UserRole)
+    app.setActiveWindow(win)
+    win.quadrant.focus_task(tid)
+    assert win.focusWidget() is lst, (win.focusWidget(), app.focusWidget())
+    QTest.keyClick(lst, Qt.Key_Space)
+    app.processEvents()
     assert db.get_task(tid)["done"] == 1
-    db.set_done(tid, False)
+    assert win.focusWidget() is lst and lst.currentItem().data(Qt.UserRole) == tid, (
+        app.activeWindow(), app.focusWidget(), lst.currentRow(), lst.currentItem().data(Qt.UserRole))
+    assert lst.item(0).data(Qt.UserRole) == c_id
+    assert win.quadrant.headers[2].count.text() == "待办 1"
+    QTest.keyClick(lst, Qt.Key_Space)
+    app.processEvents()
     assert db.get_task(tid)["done"] == 0
 
     # ---- 对话框（含 AI 预填 + 截止）----
@@ -91,13 +137,16 @@ def main():
     assert dlg.result_data()["title"] == "测试"
     assert dlg.result_data()["important"] == 1
     assert dlg.result_data()["urgent"] == 1
+    assert dlg.options.isHidden()
+    assert dlg.focusWidget() is dlg.title_edit
 
     dlg2 = TaskDialog(prefill={"title": "预填", "note": "n", "important": 1, "urgent": 0, "due_at": "2099-05-05 08:30"})
     assert dlg2.result_data()["title"] == "预填"
     assert dlg2.result_data()["due_at"] == "2099-05-05 08:30"
     assert dlg2.result_data()["important"] == 1
+    assert not dlg2.options.isHidden()
 
-    # ---- 任务行内按钮确实触发动作（📁 / ✎ / ✕）----
+    # ---- 目录按钮及更多菜单 ----
     from app.ui.task_row import TaskRow
 
     class _Dummy:
@@ -127,9 +176,10 @@ def main():
     assert hasattr(row, "folder_btn")
     row.folder_btn.click()
     assert ctrl.opened == "/tmp"
-    row.edit_btn.click()
+    edit, delete = row.more_btn.menu().actions()
+    edit.trigger()
     assert ctrl.edited == 7
-    row.del_btn.click()
+    delete.trigger()
     assert ctrl.deleted == 7
     row_nodir = TaskRow({"id": 8, "title": "t2", "note": "", "important": 0, "urgent": 0,
                          "dir_path": None, "due_at": None, "done": 0, "sort_order": 0}, ctrl)
@@ -140,14 +190,22 @@ def main():
 
     # ---- 收起/展开状态机 + 展开尺寸不被收起污染 ----
     win.resize(620, 440)
-    win._save_state()
-    win._apply_collapsed(True)
+    win.collapse_btn.click()
     assert win.collapsed is True
     collapsed_h = win.height()
-    assert collapsed_h < 200  # 收起后确实变小
+    assert 40 <= collapsed_h <= 44 and win.grip.isHidden()
+    assert win.preview_due.text() == "01-02 10:00"
+    with patch("app.ui.floating_window.datetime") as clock:
+        clock.now.return_value = datetime(2099, 1, 2, 10)
+        win.reminder.timer.timeout.emit()
+    assert win.preview_due.text() == "已逾期"
     win._save_state()  # 收起态保存不得污染展开尺寸
-    assert int(db.get_setting("window_w")) >= 520
-    assert int(db.get_setting("window_h")) >= 340
+    assert db.get_setting("window_w") == "620"
+    assert db.get_setting("window_h") == "440"
+    restarted = FloatingWindow()
+    assert restarted.collapsed and restarted.height() == collapsed_h
+    restarted._apply_collapsed(False)
+    assert (restarted.width(), restarted.height()) == (620, 440)
     win._apply_collapsed(False)
     assert win.collapsed is False
     assert win.width() >= 520 and win.height() >= 340
@@ -161,6 +219,7 @@ def main():
     assert win2.collapsed is False
     assert win2.width() >= 520 and win2.height() >= 340
     win2.close()
+    win.close()
 
     print("SMOKE OK")
 

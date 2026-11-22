@@ -83,15 +83,19 @@ def check_gui(no_tray):
             try:
                 hwnd = int(dialog.winId())
                 assert not get_style(hwnd, -20) & 0x400  # WS_EX_CONTEXTHELP
+                assert dialog.focusWidget() is dialog.title_edit, "新建标题默认焦点"
+                assert not dialog.options.isVisible(), "新建默认收起可选字段"
+                dialog.options_btn.click()
+                assert dialog.options.isVisible(), "更多选项可展开"
                 for check in (dialog.imp_check, dialog.urg_check, dialog.due_check):
                     option = QStyleOptionButton()
                     check.initStyleOption(option)
                     indicator = check.style().subElementRect(QStyle.SE_CheckBoxIndicator, option, check)
                     unchecked = check.grab(indicator).toImage()
-                    assert unchecked.pixelColor(unchecked.rect().center()).alpha() > 0
+                    assert unchecked.pixelColor(unchecked.rect().center()).alpha() > 0, check.text()
                     QTest.mouseClick(check, Qt.LeftButton, pos=indicator.center())
-                    assert check.isChecked()
-                    assert check.grab(indicator).toImage() != unchecked
+                    assert check.isChecked(), check.text()
+                    assert check.grab(indicator).toImage() != unchecked, check.text()
                 data = dialog.result_data()
                 assert data["important"] == data["urgent"] == 1 and data["due_at"]
                 dialog_checks.append(True)

@@ -26,6 +26,17 @@ def is_overdue(due_at, now=None):
     return dt <= (now or datetime.datetime.now())
 
 
+def deadline_status(due_at, done=False, now=None):
+    due = parse_due(due_at)
+    if due is None:
+        return "", False
+    now = now or datetime.datetime.now()
+    if not done and due <= now:
+        days = (now - due).days
+        return (f"逾期 {days} 天" if days else "已逾期"), True
+    return due.strftime("%m-%d %H:%M"), False
+
+
 class Reminder(QObject):
     task_due = pyqtSignal(str, str)  # title, note
 

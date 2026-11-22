@@ -8,7 +8,7 @@ from PyQt5.QtCore import Qt, QDateTime, QTimer
 from PyQt5.QtGui import QPalette
 from PyQt5.QtWidgets import (
     QApplication, QDialog, QFormLayout, QLineEdit, QPlainTextEdit, QCheckBox,
-    QHBoxLayout, QPushButton, QFileDialog, QLabel, QDateTimeEdit,
+    QHBoxLayout, QPushButton, QFileDialog, QLabel, QDateTimeEdit, QWidget,
 )
 
 from app.ui.button_box import FixedTextButtonBox
@@ -132,11 +132,6 @@ class TaskDialog(QDialog):
         self.title_edit.setPlaceholderText("任务标题")
         form.addRow("标题", self.title_edit)
 
-        self.note_edit = QPlainTextEdit()
-        self.note_edit.setPlaceholderText("备注（可选）")
-        self.note_edit.setMaximumHeight(90)
-        form.addRow("备注", self.note_edit)
-
         quad = QHBoxLayout()
         self.imp_check = QCheckBox("重要")
         self.urg_check = QCheckBox("紧急")
@@ -144,35 +139,52 @@ class TaskDialog(QDialog):
         quad.addWidget(self.urg_check)
         quad.addStretch(1)
         self.quad_hint = QLabel("")
-        self.quad_hint.setStyleSheet("color:#999;")
+        self.quad_hint.setObjectName("quad_hint")
         quad.addWidget(self.quad_hint)
         form.addRow("象限", quad)
+
+        self.options_btn = QPushButton("更多选项")
+        self.options_btn.setCheckable(True)
+        self.options_btn.setAutoDefault(False)
+        form.addRow("", self.options_btn)
+        self.options = QWidget()
+        details = QFormLayout(self.options)
+        details.setContentsMargins(0, 0, 0, 0)
+        form.addRow(self.options)
+
+        self.note_edit = QPlainTextEdit()
+        self.note_edit.setPlaceholderText("备注（可选）")
+        self.note_edit.setFixedHeight(68)
+        details.addRow("备注", self.note_edit)
 
         self.dir_edit = QLineEdit()
         self.dir_edit.setPlaceholderText("可选：关联目录绝对路径")
         dir_row = QHBoxLayout()
         dir_row.addWidget(self.dir_edit)
         browse = QPushButton("浏览…")
+        browse.setAutoDefault(False)
         browse.clicked.connect(self._browse)
         dir_row.addWidget(browse)
-        form.addRow("目录", dir_row)
+        details.addRow("目录", dir_row)
 
         self.due_check = QCheckBox("截止时间")
         self.due_edit = QDateTimeEdit()
         self.due_edit.setDisplayFormat("yyyy-MM-dd HH:mm")
         self.due_edit.setCalendarPopup(True)
         self.due_edit.setDateTime(QDateTime.currentDateTime().addDays(1))
+        self.due_edit.setEnabled(False)
+        self.due_check.toggled.connect(self.due_edit.setEnabled)
         due_row = QHBoxLayout()
         due_row.addWidget(self.due_check)
         due_row.addWidget(self.due_edit, 1)
-        form.addRow("提醒", due_row)
+        details.addRow("提醒", due_row)
 
         self.imp_check.stateChanged.connect(self._update_hint)
         self.urg_check.stateChanged.connect(self._update_hint)
 
         # 不用裸 QDialogButtonBox：UKUI 文件对话框插件会触发 LanguageChange，
         # 标准按钮会被重译成英文 OK/Cancel，覆盖手工文案。
-        buttons = FixedTextButtonBox("确定", "取消")
+        buttons = FixedTextButtonBox("保存", "取消")
         buttons.accepted.connect(self._on_accept)
         buttons.rejected.connect(self.reject)
         form.addRow(buttons)
@@ -187,6 +199,19 @@ class TaskDialog(QDialog):
             self.imp_check.setChecked(bool(q["important"]))
             self.urg_check.setChecked(bool(q["urgent"]))
         self._update_hint()
+        has_details = bool(self.note_edit.toPlainText() or self.dir_edit.text()
+                           or self.due_check.isChecked())
+        self.options_btn.setChecked(has_details)
+        self._show_options(has_details)
+        self.options_btn.toggled.connect(self._show_options)
+        self.title_edit.setFocus()
+
+    def _show_options(self, visible):
+        self.options.setVisible(visible)
+        self.options_btn.setText("收起更多选项" if visible else "更多选项")
+        self.layout().activate()
+        if self.isVisible():
+            self.resize(self.width(), self.sizeHint().height())
 
     def _fill(self, data):
         self.title_edit.setText(data.get("title", ""))

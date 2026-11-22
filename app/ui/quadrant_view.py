@@ -26,42 +26,78 @@ def quadrant_of(important, urgent):
 
 
 class TaskList(QListWidget):
-    def __init__(self, quadrant, parent=None):
-        super().__init__(parent)
+    def __init__(self, quadrant, controller):
+        super().__init__()
         self.quadrant = quadrant
+        self.controller = controller
         self.setObjectName("tasklist")
+        self.setAccessibleName(QUADRANTS[quadrant]["name"] + "任务列表")
         self.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
-        self.setSelectionMode(QAbstractItemView.NoSelection)
-        self.setFocusPolicy(Qt.NoFocus)
+        self.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setFrameShape(QFrame.NoFrame)
-        self.setSpacing(1)
-        # 空象限占位提示
-        self.empty_hint = QLabel("空 · 点＋或拖入", self)
-        self.empty_hint.setObjectName("empty_hint")
-        self.empty_hint.setAlignment(Qt.AlignCenter)
-        self.empty_hint.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self.empty_add = QPushButton("＋ 添加任务", self.viewport())
+        self.empty_add.setObjectName("empty_add")
+        self.empty_add.clicked.connect(lambda: controller.new_task(quadrant))
+        self.currentItemChanged.connect(self._current_changed)
 
     def resizeEvent(self, e):
         super().resizeEvent(e)
-        self.empty_hint.setGeometry(self.viewport().rect())
+        self.empty_add.resize(self.empty_add.sizeHint())
+        self.empty_add.move((self.viewport().width() - self.empty_add.width()) // 2,
+                            (self.viewport().height() - self.empty_add.height()) // 2)
+
+    def keyPressEvent(self, e):
+        item = self.currentItem()
+        if item is not None:
+            row = self.itemWidget(item)
+            if e.key() == Qt.Key_Space:
+                self.controller.toggle_done(row.task["id"], not row.task["done"])
+                return
+            if e.key() in (Qt.Key_Return, Qt.Key_Enter):
+                self.controller.edit_task(row.task["id"])
+                return
+        super().keyPressEvent(e)
+
+    def _show_current(self, item, focused):
+        if item is not None:
+            row = self.itemWidget(item)
+            if row is not None:
+                row.setProperty("keyboard_current", focused)
+                row.style().unpolish(row)
+                row.style().polish(row)
+                row.update()
+
+    def _current_changed(self, current, previous):
+        self._show_current(previous, False)
+        self._show_current(current, self.hasFocus())
+
+    def focusInEvent(self, e):
+        super().focusInEvent(e)
+        self._show_current(self.currentItem(), True)
+
+    def focusOutEvent(self, e):
+        super().focusOutEvent(e)
+        self._show_current(self.currentItem(), False)
 
 
 class QuadrantHeader(QFrame):
     def __init__(self, quadrant, controller):
         super().__init__()
         self.setObjectName(f"qh_q{quadrant}")
-        self.setFixedHeight(22)
+        self.setFixedHeight(28)
         lay = QHBoxLayout(self)
         lay.setContentsMargins(8, 1, 4, 1)
         lay.setSpacing(6)
         self.name = QLabel(QUADRANTS[quadrant]["name"])
         self.name.setObjectName("qh_name")
-        self.count = QLabel("0")
+        self.count = QLabel("待办 0")
         self.count.setObjectName("qh_count")
         add = QPushButton("＋")
         add.setObjectName("hdr_btn")
-        add.setFixedSize(20, 20)
+        add.setFixedSize(26, 24)
         add.setToolTip("在本象限新增")
+        add.setAccessibleName(QUADRANTS[quadrant]["name"] + "新增任务")
         add.clicked.connect(lambda: controller.new_task(quadrant))
         lay.addWidget(self.name)
         lay.addWidget(self.count)
@@ -70,7 +106,7 @@ class QuadrantHeader(QFrame):
 
 
 class QuadrantView(QWidget):
-    count_changed = pyqtSignal(int)
+    tasks_changed = pyqtSignal(list)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -79,19 +115,28 @@ class QuadrantView(QWidget):
         grid.setSpacing(5)
         self.headers = {}
         self.lists = {}
+        self.cells = {}
+        self._drop_target = None
+        self._rows = {}
         positions = {0: (0, 0), 1: (0, 1), 2: (1, 0), 3: (1, 1)}
         for q in QUADRANT_ORDER:
-            cell = QVBoxLayout()
-            cell.setSpacing(2)
-            cell.setContentsMargins(0, 0, 0, 0)
+            cell = QFrame()
+            cell.setObjectName("quadrant_cell")
+            layout = QVBoxLayout(cell)
+            layout.setSpacing(2)
+            layout.setContentsMargins(2, 2, 2, 2)
             hdr = QuadrantHeader(q, self)
             lst = TaskList(q, self)
-            cell.addWidget(hdr)
-            cell.addWidget(lst, 1)
+            layout.addWidget(hdr)
+            layout.addWidget(lst, 1)
             self.headers[q] = hdr
             self.lists[q] = lst
+            self.cells[q] = cell
             r, c = positions[q]
-            grid.addLayout(cell, r, c)
+            grid.addWidget(cell, r, c)
+        for index in (0, 1):
+            grid.setColumnStretch(index, 1)
+            grid.setRowStretch(index, 1)
 
         self.reload()
 
@@ -101,26 +146,62 @@ class QuadrantView(QWidget):
         by_q = {q: [] for q in QUADRANT_ORDER}
         for t in tasks:
             by_q[quadrant_of(t["important"], t["urgent"])].append(t)
-        open_count = 0
+        focused_list = None
+        focused_id = None
+        focus = self.window().focusWidget() if self.isVisible() else None
+        self._rows.clear()
         for q in QUADRANT_ORDER:
             lst = self.lists[q]
+            current = lst.currentItem()
+            current_id = current.data(Qt.UserRole) if current is not None else None
+            current_index = lst.currentRow()
+            if focus is not None and (focus is lst or lst.isAncestorOf(focus)):
+                focused_list = lst
+                focused_id = current_id
+                widget = focus
+                while widget is not lst:
+                    if isinstance(widget, TaskRow):
+                        focused_id = widget.task["id"]
+                        break
+                    widget = widget.parentWidget()
             lst.clear()
-            items = sorted(by_q[q], key=lambda t: (t["sort_order"], t["id"]))
+            items = sorted(by_q[q], key=lambda t: t["done"])
             for t in items:
-                if not t["done"]:
-                    open_count += 1
                 self._add_row(lst, t)
-            self.headers[q].count.setText(str(len(items)))
-            lst.empty_hint.setVisible(lst.count() == 0)
-        self.count_changed.emit(open_count)
+            self.headers[q].count.setText(f"待办 {sum(not t['done'] for t in items)}")
+            lst.empty_add.setVisible(not items)
+            lst.setFocusPolicy(Qt.StrongFocus if items else Qt.NoFocus)
+            if current_id in self._rows and self._rows[current_id][0] is lst:
+                lst.setCurrentItem(self._rows[current_id][1])
+            elif items and (current_index >= 0 or focused_list is lst):
+                lst.setCurrentRow(min(max(current_index, 0), len(items) - 1))
+        if focused_list is not None:
+            if focused_id in self._rows:
+                self.focus_task(focused_id)
+            elif focused_list.count():
+                focused_list.setFocus()
+            else:
+                focused_list.empty_add.setFocus()
+        self.tasks_changed.emit(tasks)
 
     def _add_row(self, lst, t):
         item = QListWidgetItem()
-        item.setFlags(Qt.ItemIsEnabled)
-        item.setSizeHint(QSize(0, 26))
-        lst.addItem(item)
         row = TaskRow(t, self)
+        item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+        item.setData(Qt.UserRole, t["id"])
+        item.setSizeHint(QSize(0, row.height()))
+        lst.addItem(item)
         lst.setItemWidget(item, row)
+        self._rows[t["id"]] = (lst, item)
+
+    def focus_task(self, task_id):
+        lst, item = self._rows[task_id]
+        lst.setCurrentItem(item)
+        lst.setFocus()
+
+    def refresh_deadlines(self, now):
+        for lst, item in self._rows.values():
+            lst.itemWidget(item).refresh_deadline(now)
 
     # ---------- 操作（供 TaskRow 调用）----------
     def open_dir(self, path):
@@ -170,22 +251,31 @@ class QuadrantView(QWidget):
         db.set_sort_order(task_id, cnt)
         self._schedule_reload()
 
-    def handle_drop(self, task_id, global_pos):
+    def highlight_drop(self, task, global_pos):
         w = QApplication.widgetAt(global_pos)
-        target = None
-        while w is not None:
-            if isinstance(w, TaskList):
-                target = w
-                break
-            w = w.parent()
-        if target is None:
+        source = quadrant_of(task["important"], task["urgent"])
+        target = next((q for q, cell in self.cells.items()
+                       if q != source and (w is cell or (w is not None and cell.isAncestorOf(w)))), None)
+        self._set_drop_target(target)
+        return target
+
+    def _set_drop_target(self, target):
+        if target == self._drop_target:
             return
-        task = db.get_task(task_id)
-        if task is None:
-            return
-        if quadrant_of(task["important"], task["urgent"]) == target.quadrant:
-            return
-        self.move_task_to_quadrant(task_id, target.quadrant)
+        for q in (self._drop_target, target):
+            if q is not None:
+                cell = self.cells[q]
+                cell.setProperty("drop_target", q == target)
+                cell.style().unpolish(cell)
+                cell.style().polish(cell)
+                cell.update()
+        self._drop_target = target
+
+    def handle_drop(self, task, global_pos):
+        target = self.highlight_drop(task, global_pos)
+        self._set_drop_target(None)
+        if target is not None:
+            self.move_task_to_quadrant(task["id"], target)
 
     def _schedule_reload(self):
         # 延迟到当前事件处理返回后再重建，避免在行内控件自身事件里销毁它

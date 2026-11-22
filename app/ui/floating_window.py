@@ -1,16 +1,19 @@
 """悬浮窗容器：无边框、半透明、始终置顶、可收起、可拖动。"""
+from datetime import datetime
 import subprocess
 import sys
 
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLabel, QPushButton,
-    QApplication, QMenu, QSizeGrip, QDialog,
+    QApplication, QMenu, QSizeGrip, QDialog, QWIDGETSIZE_MAX,
 )
 
 from app import db
-from app.remind import Reminder
+from app.remind import Reminder, parse_due
+from app.ui.icons import icon_button
 from app.ui.quadrant_view import QuadrantView
+from app.ui.task_row import DeadlineLabel, ElidedLabel
 
 
 class TitleBar(QFrame):
@@ -36,11 +39,30 @@ class TitleBar(QFrame):
 
 EXPAND_MIN_W = 520
 EXPAND_MIN_H = 340
+COLLAPSED_W = 380
+COLLAPSED_H = 42
+PREVIEW_PRIORITY = {(1, 1): 0, (0, 1): 1}
+
+
+def collapsed_preview(tasks):
+    """从按列表顺序排列的任务中选择预览。"""
+    open_tasks = [task for task in tasks if not task["done"]]
+    candidates = []
+    for task in open_tasks:
+        due = parse_due(task["due_at"])
+        if due is not None:
+            priority = PREVIEW_PRIORITY.get((task["important"], task["urgent"]), 2)
+            candidates.append((priority, due, task))
+    if candidates:
+        task = min(candidates, key=lambda entry: entry[:2])[2]
+        return task["title"], task["due_at"]
+    return (f"{len(open_tasks)} 项待办" if open_tasks else "暂无待办"), None
 
 
 class FloatingWindow(QWidget):
     def __init__(self):
         super().__init__()
+        self.setWindowTitle("四象限待办")
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         if sys.platform != "win32":
@@ -50,11 +72,11 @@ class FloatingWindow(QWidget):
         self.collapsed = False
         self._expanded_size = None
         self._build_ui()
-        self._update_count()
+        self._update_preview(db.list_tasks())
         self._restore_state()
 
         self.reminder = Reminder(self)
-        self.reminder.task_due.connect(self._on_task_due)
+        self.reminder.timer.timeout.connect(self._refresh_deadlines)
 
     def _build_ui(self):
         outer = QVBoxLayout(self)
@@ -63,9 +85,8 @@ class FloatingWindow(QWidget):
         self.container.setObjectName("container")
         outer.addWidget(self.container)
 
-        lay = QVBoxLayout(self.container)
-        lay.setContentsMargins(8, 6, 8, 8)
-        lay.setSpacing(5)
+        self.content_layout = QVBoxLayout(self.container)
+        self.content_layout.setSpacing(5)
 
         # 顶栏
         self.top_bar = TitleBar()
@@ -74,14 +95,13 @@ class FloatingWindow(QWidget):
         tb.setContentsMargins(2, 1, 2, 1)
         self.title_lbl = QLabel("待办 · 四象限")
         self.title_lbl.setObjectName("title")
-        self.ai_btn = QPushButton("AI 粘贴")
+        self.ai_btn = QPushButton("从文本提取")
         self.ai_btn.setObjectName("ai_btn")
+        self.ai_btn.setToolTip("用 AI 从粘贴的文本提取任务")
         self.add_btn = QPushButton("＋ 新建")
         self.add_btn.setObjectName("add_btn")
-        self.settings_btn = QPushButton("⚙")
-        self.settings_btn.setObjectName("icon_btn")
-        self.collapse_btn = QPushButton("—")
-        self.collapse_btn.setObjectName("collapse_btn")
+        self.settings_btn = icon_button("settings", "设置", "icon_btn")
+        self.collapse_btn = icon_button("collapse", "收起", "icon_btn")
         tb.addWidget(self.title_lbl)
         tb.addStretch(1)
         tb.addWidget(self.ai_btn)
@@ -96,21 +116,23 @@ class FloatingWindow(QWidget):
         self.collapsed_bar = TitleBar()
         self.collapsed_bar.setObjectName("collapsedbar")
         cb = QHBoxLayout(self.collapsed_bar)
-        cb.setContentsMargins(10, 6, 10, 6)
-        self.collapsed_add_btn = QPushButton("＋")
-        self.collapsed_add_btn.setObjectName("add_btn")
-        self.count_lbl = QLabel("")
-        self.count_lbl.setObjectName("count")
+        cb.setContentsMargins(0, 0, 0, 0)
+        cb.setSpacing(8)
+        self.collapsed_add_btn = icon_button("add", "新建任务", "add_btn")
+        self.collapsed_add_btn.setFixedSize(30, 28)
+        self.preview_title = ElidedLabel()
+        self.preview_title.setObjectName("preview_title")
+        self.preview_due = DeadlineLabel()
         self.expand_btn = QPushButton("展开")
         self.expand_btn.setObjectName("expand_btn")
         cb.addWidget(self.collapsed_add_btn)
-        cb.addWidget(self.count_lbl)
-        cb.addStretch(1)
+        cb.addWidget(self.preview_title, 1)
+        cb.addWidget(self.preview_due)
         cb.addWidget(self.expand_btn)
 
-        lay.addWidget(self.top_bar)
-        lay.addWidget(self.quadrant, 1)
-        lay.addWidget(self.collapsed_bar)
+        self.content_layout.addWidget(self.top_bar)
+        self.content_layout.addWidget(self.quadrant, 1)
+        self.content_layout.addWidget(self.collapsed_bar)
 
         self.collapsed_bar.hide()
 
@@ -120,7 +142,7 @@ class FloatingWindow(QWidget):
         self.collapsed_add_btn.clicked.connect(lambda: self.quadrant.new_task())
         self.ai_btn.clicked.connect(self._ai_new)
         self.settings_btn.clicked.connect(self._settings)
-        self.quadrant.count_changed.connect(self._update_count)
+        self.quadrant.tasks_changed.connect(self._update_preview)
 
         self.grip = QSizeGrip(self)
 
@@ -142,16 +164,18 @@ class FloatingWindow(QWidget):
         if dlg.exec_() == QDialog.Accepted:
             dlg.save()
 
-    def _on_task_due(self, title, note):
-        self.quadrant.reload()
-        self._update_count()
-        self.count_lbl.setStyleSheet("color:#ff8a8a;")
-        QTimer.singleShot(3000, lambda: self.count_lbl.setStyleSheet(""))
+    def _refresh_deadlines(self):
+        now = datetime.now()
+        self.quadrant.refresh_deadlines(now)
+        self.preview_due.update_deadline(self._preview_due_at, now=now)
 
     # ---------- 收起 / 展开 ----------
     def _toggle_collapse(self):
+        if not self.collapsed:
+            self._save_state()
         self._apply_collapsed(not self.collapsed)
         self._save_state()
+        (self.expand_btn if self.collapsed else self.collapse_btn).setFocus()
 
     def _apply_collapsed(self, collapsed):
         self.collapsed = collapsed
@@ -159,16 +183,20 @@ class FloatingWindow(QWidget):
             # 先记住展开尺寸，再缩小；收起时解除最小尺寸限制
             if self.width() >= EXPAND_MIN_W and self.height() >= EXPAND_MIN_H:
                 self._expanded_size = (self.width(), self.height())
-            self.setMinimumSize(0, 0)
             self.top_bar.hide()
             self.quadrant.hide()
+            self.grip.hide()
+            self.content_layout.setContentsMargins(7, 5, 7, 5)
             self.collapsed_bar.show()
-            self._update_count()
-            self.adjustSize()
+            screen = self.screen() or QApplication.primaryScreen()
+            self.setFixedSize(min(COLLAPSED_W, screen.availableGeometry().width()), COLLAPSED_H)
         else:
             self.collapsed_bar.hide()
+            self.setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX)
+            self.content_layout.setContentsMargins(8, 6, 8, 8)
             self.top_bar.show()
             self.quadrant.show()
+            self.grip.show()
             w, h = self._expanded_size or (None, None)
             if not w or not h:
                 w = self._int_setting("window_w", 600)
@@ -177,11 +205,12 @@ class FloatingWindow(QWidget):
             h = max(h, EXPAND_MIN_H)
             self.setMinimumSize(EXPAND_MIN_W, EXPAND_MIN_H)
             self.resize(w, h)
+        self._refresh_deadlines()
 
-    def _update_count(self, n=None):
-        if n is None:
-            n = sum(1 for t in db.list_tasks() if not t["done"])
-        self.count_lbl.setText(f"{n} 项进行中")
+    def _update_preview(self, tasks):
+        title, self._preview_due_at = collapsed_preview(tasks)
+        self.preview_title.setFullText(title)
+        self.preview_due.update_deadline(self._preview_due_at)
 
     # ---------- 状态持久化 ----------
     def _int_setting(self, key, default):
@@ -219,6 +248,7 @@ class FloatingWindow(QWidget):
     # ---------- 事件 ----------
     def showEvent(self, e):
         super().showEvent(e)
+        self._refresh_deadlines()
         if sys.platform != "win32":
             # Qt.Tool 在部分 UKUI/KWin 版本仍会出现在任务栏，显式补上 EWMH 状态。
             QTimer.singleShot(0, self._skip_taskbar)
@@ -253,7 +283,7 @@ class FloatingWindow(QWidget):
     def contextMenuEvent(self, e):
         menu = QMenu(self)
         menu.addAction("新建任务", lambda: self.quadrant.new_task())
-        menu.addAction("AI 粘贴总结", self._ai_new)
+        menu.addAction("从文本提取", self._ai_new)
         menu.addAction("设置", self._settings)
         menu.addAction("收起" if not self.collapsed else "展开", self._toggle_collapse)
         if self.close_to_tray:
