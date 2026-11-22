@@ -22,6 +22,7 @@ def check_gui(no_tray):
         app = QApplication.instance()
         win = next(w for w in app.topLevelWidgets() if isinstance(w, FloatingWindow))
         assert app.platformName() == "windows"
+        assert not app.windowIcon().pixmap(32, 32).isNull()
         if no_tray:
             assert win.isVisible() and app.quitOnLastWindowClosed()
             QTest.keyClick(win, Qt.Key_Escape)
@@ -31,6 +32,7 @@ def check_gui(no_tray):
 
         tray = app.findChild(QSystemTrayIcon)
         assert tray.isVisible() and not win.isVisible()
+        assert tray.icon().cacheKey() == app.windowIcon().cacheKey()
         show, new, _, quit_action = tray.contextMenu().actions()
         assert [show.text(), new.text(), quit_action.text()] == ["显示待办", "新建任务", "退出"]
 

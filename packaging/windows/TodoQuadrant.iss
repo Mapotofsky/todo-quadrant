@@ -22,6 +22,7 @@ CloseApplications=yes
 RestartApplications=no
 OutputDir=..\..\dist\windows
 OutputBaseFilename=TodoQuadrant-{#AppVersion}-windows-x64-setup
+SetupIconFile=TodoQuadrant.ico
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern

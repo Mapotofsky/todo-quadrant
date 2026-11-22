@@ -39,7 +39,7 @@ PyInstaller `onedir` 产物在 `.build/windows/dist/TodoQuadrant/`，安装包�
 /usr/bin/python3 main.py
 ```
 
-可从当前源码位置生成带执行权限的快捷方式：
+可从当前源码位置生成带执行权限和应用图标的快捷方式。已有快捷方式可用相同命令更新：
 
 ```bash
 /usr/bin/python3 scripts/install_linux_shortcut.py          # 开始菜单
@@ -88,6 +88,7 @@ todo-quadrant/
 │       ├── settings_dialog.py   # AI 接口三要素(base_url/key/model)配置
 │       └── message.py           # 深色确认/提示对话框（替代会被系统接管的 QMessageBox）
 ├── resources/
+│   ├── todo-quadrant.png        # Linux 启动器和 Windows 运行时的应用图标
 │   └── style.qss                # 全局样式唯一来源：半透明圆角 + 四象限配色 + 深色控件
 ├── scripts/                     # 测试、截图及 Linux 快捷方式生成
 │   ├── smoke_test.py            #   主自测：数据层/UI构造/状态机/按钮行为，须输出 SMOKE OK

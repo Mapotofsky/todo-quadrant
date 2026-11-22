@@ -16,9 +16,11 @@ def main():
     # Exec 参数的引号转义在 desktop 文件的通用转义之后解析。
     argument = "".join("\\" + c if c in '\\"$`' else c for c in path)
     argument = argument.replace("\\", "\\\\")
+    icon = str(root / "resources" / "todo-quadrant.png").replace("\\", "\\\\")
+    entry = template.replace("@MAIN@", '"' + argument + '"').replace("@ICON@", icon)
     directory.mkdir(parents=True, exist_ok=True)
     shortcut = directory / "todo-quadrant.desktop"
-    shortcut.write_text(template.replace("@MAIN@", '"' + argument + '"'), encoding="utf-8")
+    shortcut.write_text(entry, encoding="utf-8")
     shortcut.chmod(0o755)
     print(shortcut)
 

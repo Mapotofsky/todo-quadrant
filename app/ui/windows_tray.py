@@ -1,12 +1,12 @@
 """Windows 通知区域入口及到期通知。"""
-from PyQt5.QtWidgets import QMenu, QStyle, QSystemTrayIcon
+from PyQt5.QtWidgets import QMenu, QSystemTrayIcon
 
 
 def create_tray(app, window):
     if not QSystemTrayIcon.isSystemTrayAvailable():
         return None
 
-    tray = QSystemTrayIcon(app.style().standardIcon(QStyle.SP_FileDialogDetailedView), app)
+    tray = QSystemTrayIcon(app.windowIcon(), app)
     tray.setToolTip("四象限待办")
     menu = QMenu(window)
 

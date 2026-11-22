@@ -21,6 +21,7 @@ def _setup_env():
 _setup_env()
 
 from PyQt5.QtCore import Qt  # noqa: E402
+from PyQt5.QtGui import QIcon  # noqa: E402
 from PyQt5.QtWidgets import QApplication  # noqa: E402
 
 from app import db, config  # noqa: E402
@@ -41,6 +42,9 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName("todo-quadrant")
     app.setOrganizationName("local")
+    if sys.platform == "win32":
+        here = os.path.dirname(os.path.abspath(__file__))
+        app.setWindowIcon(QIcon(os.path.join(here, "resources", "todo-quadrant.png")))
     # 平台 GTK/UKUI 样式会忽略 QMessageBox 的 QSS 背景，Fusion 完全服从 QSS
     app.setStyle("fusion")
 
