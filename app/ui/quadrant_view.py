@@ -46,6 +46,17 @@ class TaskList(QListWidget):
         self.empty_add.resize(self.empty_add.sizeHint())
         self.empty_add.move((self.viewport().width() - self.empty_add.width()) // 2,
                             (self.viewport().height() - self.empty_add.height()) // 2)
+        self._fit_rows()
+
+    def _fit_rows(self):
+        """任务行固定为列表视口宽度，避免行内容把「更多」按钮挤出可视区。"""
+        width = self.viewport().width()
+        if width <= 0:
+            return
+        for i in range(self.count()):
+            row = self.itemWidget(self.item(i))
+            if row is not None:
+                row.setFixedWidth(width)
 
     def keyPressEvent(self, e):
         item = self.currentItem()
@@ -192,6 +203,9 @@ class QuadrantView(QWidget):
         item.setSizeHint(QSize(0, row.height()))
         lst.addItem(item)
         lst.setItemWidget(item, row)
+        width = lst.viewport().width()
+        if width > 0:
+            row.setFixedWidth(width)
         self._rows[t["id"]] = (lst, item)
 
     def focus_task(self, task_id):
