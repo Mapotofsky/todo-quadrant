@@ -1,0 +1,12 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=四象限待办
+GenericName=Todo Quadrant
+Comment=四象限待办悬浮窗
+Exec=/usr/bin/python3 -B /usr/share/todo-quadrant/main.py
+Icon=todo-quadrant
+Terminal=false
+Categories=Utility;
+StartupNotify=false
+StartupWMClass=todo-quadrant

@@ -39,7 +39,71 @@ PyInstaller `onedir` 产物在 `.build/windows/dist/TodoQuadrant/`，安装包�
 /usr/bin/python3 main.py
 ```
 
-可从当前源码位置生成带执行权限和应用图标的快捷方式。已有快捷方式可用相同命令更新：
+- 启动后驻留通知区域（系统托盘），不显示浮窗；单击托盘图标显示，右键可「显示待办」「新建任务」「退出」。
+- 关闭浮窗（Alt+F4 或右键「隐藏到托盘」）只是隐藏，进程继续扫描到期任务；从托盘「退出」结束进程。
+- 若通知区域不可用，启动会直接显示浮窗，关闭浮窗即退出。
+- 托盘图标和开始菜单图标使用 `resources/todo-quadrant.png`；任务栏不保留浮窗按钮（`wmctrl` 可用时显式设置 `skip_taskbar`）。
+
+### 从 GitHub Release 安装 .deb（推荐）
+
+从 Release 页面下载 `todo-quadrant_*.deb`，在下载目录执行：
+
+```bash
+sudo apt install ./todo-quadrant_*.deb
+```
+
+安装后开始菜单出现「四象限待办」，启动即驻留通知区域，行为与用户级安装一致。文件位置：
+
+- 程序 `/usr/share/todo-quadrant/`（桌面项以 `/usr/bin/python3 -B` 启动）
+- 桌面项 `/usr/share/applications/todo-quadrant.desktop`
+- 图标 `/usr/share/icons/hicolor/256x256/apps/todo-quadrant.png`
+- 说明 `/usr/share/doc/todo-quadrant/README.md`
+
+数据库仍是 `~/.config/todo-quadrant/todo.db`，升级和默认卸载都保留。
+
+**安装前先卸载旧用户级安装。** 如果之前用 `install.py` 装过 `~/.local/share/todo-quadrant`，先执行：
+
+```bash
+/usr/bin/python3 ~/.local/share/todo-quadrant/uninstall.py
+```
+
+用户级桌面项位于 `~/.local/share/applications`，优先级高于 `/usr/share/applications`；两者并存时开始菜单可能仍启动旧副本，看起来像升级没有生效。
+
+升级：先从托盘菜单「退出」应用（避免新旧进程同时操作数据库），再下载新版本的 `.deb` 并执行 `sudo apt install ./todo-quadrant_<版本>_all.deb`。
+
+卸载：
+
+```bash
+sudo apt remove todo-quadrant
+```
+
+默认保留 `~/.config/todo-quadrant/todo.db`；需要彻底清理时再手动删除 `~/.config/todo-quadrant`。
+
+自行构建（需要 `dpkg-deb`；dpkg 不支持 `--root-owner-group` 时脚本自动改用 `fakeroot`）：
+
+```bash
+python3 packaging/linux/deb/build_deb.py --version 1.0.1
+```
+
+产物为 `dist/linux/todo-quadrant_1.0.1_all.deb`，脚本会打印大小和 SHA256。包内只有 Python 源码、QSS 和 PNG，因此 `Architecture: all`；不打包 `api-key.txt`，deb 安装版请在「设置」中填写 AI 密钥。
+
+### 安装到本机（用户级，无需 root）
+
+```bash
+/usr/bin/python3 packaging/linux/build.py
+tar -xzf dist/linux/todo-quadrant-1.0.1-linux-arm64.tar.gz -C /tmp
+/usr/bin/python3 /tmp/todo-quadrant-1.0.1-linux-arm64/install.py
+```
+
+安装到 `~/.local/share/todo-quadrant`，开始菜单入口为 `~/.local/share/applications/todo-quadrant.desktop`。升级时先退出托盘应用，再重新执行 `install.py`。卸载：
+
+```bash
+/usr/bin/python3 ~/.local/share/todo-quadrant/uninstall.py
+```
+
+默认保留 `~/.config/todo-quadrant/todo.db`；加 `--purge` 才会同时删除任务数据。安装版与源码运行共用同一个数据库。
+
+从当前源码位置生成快捷方式（不复制程序文件）：
 
 ```bash
 /usr/bin/python3 scripts/install_linux_shortcut.py          # 开始菜单
@@ -47,7 +111,7 @@ PyInstaller `onedir` 产物在 `.build/windows/dist/TodoQuadrant/`，安装包�
 ```
 
 - `python3`（3.8）、`python3-pyqt5`、系统 Qt5（5.15）
-- 可选：`peony`（打开目录）、`notify-send`（桌面通知）
+- 可选：`peony`（打开目录）、`notify-send`（桌面通知）、`wmctrl`（任务栏隐藏兜底）
 
 - Wayland 会话下自动强制 `QT_QPA_PLATFORM=xcb`（XWayland）以获得可靠的置顶/透明。
 - 若窗口偏小/发虚，可设置缩放因子：
@@ -57,6 +121,12 @@ PyInstaller `onedir` 产物在 `.build/windows/dist/TodoQuadrant/`，安装包�
   ```
 
 - 数据存于 `~/.config/todo-quadrant/todo.db`。
+
+桌面会话中的托盘验收：
+
+```bash
+/usr/bin/python3 scripts/linux_test.py    # 须输出 LINUX TRAY OK
+```
 
 ## 用法
 
@@ -81,6 +151,7 @@ todo-quadrant/
 │   └── ui/
 │       ├── floating_window.py   # 悬浮窗容器：无边框/半透明/置顶/收起/拖动/尺寸状态记忆
 │       ├── windows_tray.py      # Windows 托盘菜单、窗口显示和系统通知
+│       ├── linux_tray.py        # 麒麟托盘菜单、窗口显示和关闭到托盘
 │       ├── quadrant_view.py     # 2×2 四象限网格 + 象限标题栏 + 拖拽换象限 + 空态提示
 │       ├── task_row.py          # 单个任务行：勾选/标题/截止/📁/✎/✕ + 拖拽源
 │       ├── task_dialog.py       # 任务新建/编辑表单（象限/目录/截止时间，支持 AI 预填）
@@ -92,6 +163,7 @@ todo-quadrant/
 │   └── style.qss                # 全局样式唯一来源：半透明圆角 + 四象限配色 + 深色控件
 ├── scripts/                     # 测试、截图及 Linux 快捷方式生成
 │   ├── smoke_test.py            #   主自测：数据层/UI构造/状态机/按钮行为，须输出 SMOKE OK
+│   ├── linux_test.py            #   桌面会话托盘验收：隐藏启动/显示/关闭到托盘/跳过任务栏
 │   ├── windows_test.py          #   Windows 原生托盘、提醒、退出和迁移验证
 │   ├── mock_ai_test.py          #   AI 链路：本地起 mock 服务验证请求/解析，须 MOCK_AI OK
 │   ├── render_capture.py        #   离屏渲染主窗口为 PNG（布局/配色回归核对）
@@ -99,8 +171,11 @@ todo-quadrant/
 │   ├── capture_delete_real.py   #   目标设备上抓删除确认框（对话框样式验收）
 │   ├── capture_dialogs.py       #   离屏渲染对话框 PNG
 │   ├── spike_window.py          #   人工核验「置顶+半透明+拖动」的最小窗口
-│   └── x11_above_test.py        #   读取 _NET_WM_STATE 验证置顶机制
-├── packaging/windows/           # PyInstaller 和 Inno Setup 构建配置
+│   ├── x11_above_test.py        #   读取 _NET_WM_STATE 验证置顶机制
+│   └── install_linux_shortcut.py #  按当前源码位置生成 Linux 快捷方式
+├── packaging/
+│   ├── windows/                 # PyInstaller 和 Inno Setup 构建配置
+│   └── linux/                   # 用户级 tar.gz 安装包与 deb/ 下的 .deb 打包
 ├── todo-quadrant.desktop        # Linux 桌面快捷方式模板
 ├── DESIGN.md                    # 设计文档：需求/选型/架构/数据模型/风险
 ├── AGENTS.md                    # 开发规范：目标设备约束、硬性规则、完成标准

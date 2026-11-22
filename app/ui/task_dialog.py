@@ -1,12 +1,110 @@
 """任务新建 / 编辑对话框（含截止时间与 AI 预填）。"""
 import os
+import shutil
+import subprocess
+import sys
 
-from PyQt5.QtCore import Qt, QDateTime
+from PyQt5.QtCore import Qt, QDateTime, QTimer
+from PyQt5.QtGui import QPalette
 from PyQt5.QtWidgets import (
-    QDialog, QFormLayout, QLineEdit, QPlainTextEdit, QCheckBox,
-    QHBoxLayout, QPushButton, QFileDialog, QDialogButtonBox, QLabel,
-    QDateTimeEdit,
+    QApplication, QDialog, QFormLayout, QLineEdit, QPlainTextEdit, QCheckBox,
+    QHBoxLayout, QPushButton, QFileDialog, QLabel, QDateTimeEdit,
 )
+
+from app.ui.button_box import FixedTextButtonBox
+
+_PICKER_TITLE = "选择关联目录"
+
+
+def _system_picker_qss():
+    """按系统调色板生成目录选择器的局部样式。
+
+    UKUI 的原生文件对话框由 qt5-ukui-filedialog 插件在本进程内创建，会继承
+    应用的全局 QSS。结果是文件列表、侧栏跟随系统（浅色），按钮和输入框却
+    被染成应用的深色，出现半系统半应用的割裂外观。这里用系统调色板覆盖应用
+    QSS 影响对话框的那几条规则，让选择器整体回到系统配色。
+    """
+    palette = QApplication.palette()
+    colors = {
+        "window": palette.color(QPalette.Window).name(),
+        "window_text": palette.color(QPalette.WindowText).name(),
+        "base": palette.color(QPalette.Base).name(),
+        "text": palette.color(QPalette.Text).name(),
+        "button": palette.color(QPalette.Button).name(),
+        "button_text": palette.color(QPalette.ButtonText).name(),
+        "light": palette.color(QPalette.Light).name(),
+        "mid": palette.color(QPalette.Mid).name(),
+        "midlight": palette.color(QPalette.Midlight).name(),
+        "highlight": palette.color(QPalette.Highlight).name(),
+        "highlighted_text": palette.color(QPalette.HighlightedText).name(),
+    }
+    return """
+QDialog { background-color: %(window)s; color: %(window_text)s; }
+QDialog QLabel, QDialog QCheckBox { color: %(window_text)s; background: transparent; }
+QDialog QCheckBox { spacing: 4px; }
+QDialog QPushButton { background-color: %(button)s; color: %(button_text)s;
+    border: 1px solid %(mid)s; border-radius: 4px; padding: 3px 8px; }
+QDialog QPushButton:hover { background-color: %(light)s; }
+QDialog QPushButton:pressed { background-color: %(midlight)s; }
+QDialog QLineEdit, QDialog QComboBox, QDialog QSpinBox {
+    background-color: %(base)s; color: %(text)s;
+    border: 1px solid %(mid)s; border-radius: 4px; padding: 4px 6px;
+    selection-background-color: %(highlight)s; selection-color: %(highlighted_text)s; }
+QDialog QComboBox QAbstractItemView { background-color: %(base)s; color: %(text)s;
+    selection-background-color: %(highlight)s; selection-color: %(highlighted_text)s; }
+QDialog QScrollBar:vertical { background: transparent; width: 10px; margin: 0; }
+QDialog QScrollBar::handle:vertical { background: %(mid)s; border-radius: 5px; min-height: 20px; }
+QDialog QScrollBar::add-line:vertical, QDialog QScrollBar::sub-line:vertical { height: 0; }
+QDialog QMenu { background-color: %(window)s; color: %(window_text)s; border: 1px solid %(mid)s; }
+QDialog QMenu::item:selected { background-color: %(highlight)s; color: %(highlighted_text)s; }
+""" % colors
+
+
+def _style_picker_window(window):
+    window.setStyleSheet(_system_picker_qss())
+    if sys.platform != "win32" and shutil.which("wmctrl"):
+        # 用 EWMH 加 above；对原生窗口 setWindowFlags 会重建窗口并报 BadWindow。
+        try:
+            subprocess.run(
+                ["wmctrl", "-i", "-r", hex(int(window.winId())), "-b", "add,above"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                check=False, timeout=2)
+        except (OSError, subprocess.SubprocessError):
+            pass
+    else:
+        window.setWindowFlag(Qt.WindowStaysOnTopHint, True)
+        window.show()
+    window.raise_()
+    window.activateWindow()
+
+
+def _tune_native_picker(dialog, attempt=0):
+    """把原生目录选择器置顶，并让它按系统配色显示。
+
+    UKUI 的文件对话框是本进程内的 QDialog，默认没有置顶标记，会被设置了
+    WindowStaysOnTopHint 的悬浮窗和任务对话框盖住；它和 QFileDialog 包装层
+    是两个不同的顶层窗口，包装层不可见，不能对它下手。这里在弹出后（open()
+    不阻塞）按标题找回真正的对话框再补置顶和系统配色；找不到时静默放弃，
+    对话框本身仍可用。
+    """
+    if not dialog.isVisible():
+        return
+    helper = None
+    for widget in QApplication.topLevelWidgets():
+        if (widget is not dialog and isinstance(widget, QDialog)
+                and widget.isVisible()
+                and widget.windowTitle() == dialog.windowTitle()):
+            helper = widget
+            break
+    if helper is not None:
+        _style_picker_window(helper)
+        return
+    if attempt < 60:
+        QTimer.singleShot(50, lambda: _tune_native_picker(dialog, attempt + 1))
+        return
+    # 没有独立顶层窗口，说明当前平台用的是 Qt 内置文件对话框。
+    if dialog.isVisible():
+        _style_picker_window(dialog)
 
 
 _QUAD_NAME = {
@@ -26,6 +124,7 @@ class TaskDialog(QDialog):
         self.setWindowFlags((self.windowFlags() | Qt.WindowStaysOnTopHint)
                             & ~Qt.WindowContextHelpButtonHint)
         self._task = task
+        self._dir_picker = None
 
         form = QFormLayout(self)
 
@@ -71,9 +170,9 @@ class TaskDialog(QDialog):
         self.imp_check.stateChanged.connect(self._update_hint)
         self.urg_check.stateChanged.connect(self._update_hint)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        buttons.button(QDialogButtonBox.Ok).setText("确定")
-        buttons.button(QDialogButtonBox.Cancel).setText("取消")
+        # 不用裸 QDialogButtonBox：UKUI 文件对话框插件会触发 LanguageChange，
+        # 标准按钮会被重译成英文 OK/Cancel，覆盖手工文案。
+        buttons = FixedTextButtonBox("确定", "取消")
         buttons.accepted.connect(self._on_accept)
         buttons.rejected.connect(self.reject)
         form.addRow(buttons)
@@ -104,9 +203,37 @@ class TaskDialog(QDialog):
 
     def _browse(self):
         start = self.dir_edit.text() or os.path.expanduser("~")
-        d = QFileDialog.getExistingDirectory(self, "选择关联目录", start)
-        if d:
-            self.dir_edit.setText(d)
+        if sys.platform == "win32":
+            # Windows 继续使用系统原生目录对话框，不参与 Linux 的置顶/配色修补。
+            chosen = QFileDialog.getExistingDirectory(self, _PICKER_TITLE, start)
+            if chosen:
+                self.dir_edit.setText(chosen)
+            return
+        if self._dir_picker is not None:
+            self._dir_picker.raise_()
+            self._dir_picker.activateWindow()
+            return
+
+        picker = QFileDialog(self, _PICKER_TITLE, start)
+        picker.setFileMode(QFileDialog.Directory)
+        picker.setOption(QFileDialog.ShowDirsOnly, True)
+        picker.setWindowModality(Qt.ApplicationModal)
+        self._dir_picker = picker
+        picker.finished.connect(self._on_dir_picker_finished)
+        picker.open()
+        _tune_native_picker(picker)
+
+    def _on_dir_picker_finished(self, result):
+        picker = self.sender()
+        if not isinstance(picker, QFileDialog):
+            picker = self._dir_picker
+        if picker is None:
+            return
+        if picker is self._dir_picker:
+            self._dir_picker = None
+        if result == QDialog.Accepted and picker.selectedFiles():
+            self.dir_edit.setText(picker.selectedFiles()[0])
+        picker.deleteLater()
 
     def _update_hint(self):
         key = (1 if self.imp_check.isChecked() else 0,

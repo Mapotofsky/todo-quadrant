@@ -1,0 +1,11 @@
+Package: todo-quadrant
+Version: @VERSION@
+Architecture: @ARCH@
+Maintainer: @MAINTAINER@
+Section: utils
+Priority: optional
+Depends: python3 (>= 3.8), python3-pyqt5
+Recommends: wmctrl, libnotify-bin, peony | xdg-utils
+Description: 四象限待办悬浮窗
+ 无边框半透明悬浮窗，以「重要 × 紧急」四象限组织任务，
+ 支持目录关联、截止提醒和 AI 粘贴总结；启动后驻留通知区域。

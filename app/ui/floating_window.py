@@ -1,4 +1,7 @@
 """悬浮窗容器：无边框、半透明、始终置顶、可收起、可拖动。"""
+import subprocess
+import sys
+
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLabel, QPushButton,
@@ -40,6 +43,9 @@ class FloatingWindow(QWidget):
         super().__init__()
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
+        if sys.platform != "win32":
+            # 托盘常驻窗口不应出现在任务栏；Qt.Tool 再显式标记为 Utility。
+            self.setAttribute(Qt.WA_X11NetWmWindowTypeUtility, True)
         self.close_to_tray = False
         self.collapsed = False
         self._expanded_size = None
@@ -211,6 +217,23 @@ class FloatingWindow(QWidget):
             db.set_setting("window_h", g.height())
 
     # ---------- 事件 ----------
+    def showEvent(self, e):
+        super().showEvent(e)
+        if sys.platform != "win32":
+            # Qt.Tool 在部分 UKUI/KWin 版本仍会出现在任务栏，显式补上 EWMH 状态。
+            QTimer.singleShot(0, self._skip_taskbar)
+
+    def _skip_taskbar(self):
+        try:
+            subprocess.Popen(
+                ["wmctrl", "-i", "-r", hex(int(self.winId())), "-b",
+                 "add,skip_taskbar,skip_pager"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except Exception:
+            pass
+
     def resizeEvent(self, e):
         super().resizeEvent(e)
         self.grip.move(self.width() - self.grip.width(), self.height() - self.grip.height())

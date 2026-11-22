@@ -42,26 +42,29 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName("todo-quadrant")
     app.setOrganizationName("local")
-    if sys.platform == "win32":
-        here = os.path.dirname(os.path.abspath(__file__))
-        app.setWindowIcon(QIcon(os.path.join(here, "resources", "todo-quadrant.png")))
+    here = os.path.dirname(os.path.abspath(__file__))
+    icon_path = os.path.join(here, "resources", "todo-quadrant.png")
+    if os.path.exists(icon_path):
+        app.setWindowIcon(QIcon(icon_path))
     # 平台 GTK/UKUI 样式会忽略 QMessageBox 的 QSS 背景，Fusion 完全服从 QSS
     app.setStyle("fusion")
 
     db.init()
     if not getattr(sys, "frozen", False):
-        config.auto_load_api_key(os.path.dirname(os.path.abspath(__file__)))
+        config.auto_load_api_key(here)
     _load_style(app)
 
     win = FloatingWindow()
-    tray = None
     if sys.platform == "win32":
         from app.ui.windows_tray import create_tray
-        tray = create_tray(app, win)
-        if tray is None:
+    else:
+        from app.ui.linux_tray import create_tray
+    tray = create_tray(app, win)
+    if tray is None:
+        # 没有通知区域时退回普通浮窗；Windows 还要恢复普通窗口的关闭即退出语义。
+        if sys.platform == "win32":
             win.setWindowFlags((win.windowFlags() & ~Qt.WindowType_Mask) | Qt.Window)
             win.setAttribute(Qt.WA_QuitOnClose, True)
-    if tray is None:
         win.show()
     return app.exec_()
 

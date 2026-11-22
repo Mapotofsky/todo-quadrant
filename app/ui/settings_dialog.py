@@ -1,10 +1,11 @@
 """AI 接口设置对话框。"""
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
-    QDialog, QFormLayout, QLineEdit, QDialogButtonBox, QLabel,
+    QDialog, QFormLayout, QLineEdit, QLabel,
 )
 
 from app import config
+from app.ui.button_box import FixedTextButtonBox
 
 
 class SettingsDialog(QDialog):
@@ -30,9 +31,8 @@ class SettingsDialog(QDialog):
         hint.setStyleSheet("color:#999;")
         form.addRow(hint)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        buttons.button(QDialogButtonBox.Ok).setText("保存")
-        buttons.button(QDialogButtonBox.Cancel).setText("取消")
+        # 同 TaskDialog：标准 Ok/Cancel 会被 LanguageChange 重译成英文。
+        buttons = FixedTextButtonBox("保存", "取消")
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         form.addRow(buttons)

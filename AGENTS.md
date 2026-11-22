@@ -23,7 +23,7 @@
 ## 完成标准（每次改动收尾前按序跑完）
 
 ```bash
-python3 -m py_compile main.py app/*.py app/ui/*.py scripts/*.py   # 全量编译
+python3 -m py_compile main.py app/*.py app/ui/*.py scripts/*.py packaging/linux/*.py  # 全量编译
 QT_QPA_PLATFORM=offscreen python3 scripts/smoke_test.py           # 必须输出 SMOKE OK
 ```
 

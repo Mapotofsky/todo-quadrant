@@ -105,7 +105,7 @@
 
 ```
 todo-quadrant/
-├── main.py                  # 入口：设置 xcb/缩放环境变量 → QApplication → 悬浮窗
+├── main.py                  # 入口：设置 xcb/缩放环境变量 → QApplication → 托盘/悬浮窗
 ├── app/
 │   ├── __init__.py
 │   ├── config.py            # 配置读写（SQLite settings 表：AI 接口、窗口位置/状态等）
@@ -115,14 +115,20 @@ todo-quadrant/
 │   └── ui/
 │       ├── __init__.py
 │       ├── floating_window.py  # 悬浮窗容器：展开/收起状态机、拖动、置顶、透明、圆角
+│       ├── windows_tray.py     # Windows 托盘常驻与通知
+│       ├── linux_tray.py       # 麒麟托盘常驻、显示/新建/退出
 │       ├── quadrant_view.py    # 2×2 四象限网格 + 任务列表 + 跨象限拖拽
-│       ├── task_item.py        # 单条任务卡片（勾选/打开目录/编辑/删除/逾期标红）
+│       ├── task_row.py         # 单条任务卡片（勾选/打开目录/编辑/删除/逾期标红）
 │       ├── task_dialog.py      # 手动新建 / 编辑
 │       ├── ai_dialog.py        # 粘贴文本 → AI 总结 → 预填确认
 │       └── settings_dialog.py  # AI 接口三要素配置
 ├── resources/
+│   ├── todo-quadrant.png    # 应用图标（Linux 启动器/托盘、Windows 运行时）
 │   └── style.qss            # 全局样式（圆角、半透明、四象限配色）
-├── todo-quadrant.desktop    # 桌面快捷方式（Exec=python3 main.py，可选）
+├── packaging/
+│   ├── windows/             # PyInstaller + Inno Setup 安装包
+│   └── linux/               # 用户级 tar.gz 安装包构建/安装/卸载
+├── todo-quadrant.desktop    # 桌面快捷方式模板（Exec=python3 main.py，可选）
 ├── README.md
 └── DESIGN.md                # 本文档
 ```
@@ -283,7 +289,9 @@ CREATE TABLE settings (
 
 - **麒麟启动**：在源码目录运行 `/usr/bin/python3 main.py`。
   - 环境变量在 `main.py` 内自设置（`QT_QPA_PLATFORM=xcb`、缩放因子等），无需外部脚本；规避 kysec 对 home 脚本的拦截。
+  - 启动后常驻通知区域，默认不显示浮窗；单击托盘显示，关闭浮窗只隐藏。通知区域不可用时退回普通浮窗。
 - **麒麟桌面快捷方式**（可选）：`scripts/install_linux_shortcut.py` 按当前源码位置生成。
+- **麒麟安装包**：`packaging/linux/build.py` 生成用户级 tar.gz，`install.py` 安装到 `~/.local`，卸载时默认保留任务数据库；不引入系统级依赖或 shell 启动脚本。
 - **Windows 启动**：`python main.py` 或安装后的开始菜单入口，默认通过原生 Qt 后端在系统托盘常驻。
 - **Windows 安装包**：PyInstaller `onedir` 收集 Python、Qt 和 QSS，Inno Setup 负责安装、升级、快捷方式及卸载。SQLite 数据位于用户数据目录。
 
