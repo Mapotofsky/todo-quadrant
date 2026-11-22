@@ -59,6 +59,8 @@ sudo apt install ./todo-quadrant_*.deb
 - 图标 `/usr/share/icons/hicolor/256x256/apps/todo-quadrant.png`
 - 说明 `/usr/share/doc/todo-quadrant/README.md`
 
+> 双击 `.deb` 走麒麟「软件安装器」时，**首次安装的预览页固定显示齿轮占位图**，这不是包的问题：kylin-installer 2.0.2.2 只按**包名**在已安装位置找图标（`QIcon::fromTheme(包名)` → `~/.cache/uksc/icons/<包名>.png` → `/usr/share/kylin-software-center/data/icons/<包名>.png`），不会解包 deb 读 `usr/share/icons`，也不读 deb 里的桌面项——所以预览页标题也是包名 `todo-quadrant` 而不是「四象限待办」。按上面的 `apt install` 安装后图标正常；装完再打开同一个 deb，预览页也能取到正确图标。
+
 数据库仍是 `~/.config/todo-quadrant/todo.db`，升级和默认卸载都保留。
 
 **安装前先卸载旧用户级安装。** 如果之前用 `install.py` 装过 `~/.local/share/todo-quadrant`，先执行：
