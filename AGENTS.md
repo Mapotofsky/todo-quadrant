@@ -19,6 +19,7 @@
 4. **样式唯一来源是 `resources/style.qss`**。改外观改 QSS，不在代码里散落 setStyleSheet（行内状态变色等个别动态场景除外）。
 5. **窗口尺寸状态机**：收起态的小尺寸永远不得写回「展开尺寸」记忆；展开下限 520×340，恢复时钳位。floating_window.py 中 `_save_state / _apply_collapsed` 的两处防护是修过的 bug，勿退回。
 6. **`api-key.txt` 是用户密钥**：已在 .gitignore；任何代码、日志、测试不得读取并打印其内容（`config.auto_load_api_key` 是唯一合法读取点）。AI 默认 base_url / model 的唯一来源是 config.py 的 `DEFAULT_*`，改默认值只改那里。
+7. **Linux `.deb` 包的文本行尾**由 `packaging/linux/deb/build_deb.py` 统一为 LF。保留 `_normalize_line_endings()` 和打包后的解包校验，行尾处理不依赖开发机配置。
 
 ## 完成标准（每次改动收尾前按序跑完）
 

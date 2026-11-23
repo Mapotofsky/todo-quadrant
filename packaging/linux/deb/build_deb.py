@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 ROOT = Path(__file__).resolve().parents[3]
 DEB_DIR = Path(__file__).resolve().parent
@@ -21,6 +22,7 @@ FALLBACK_MAINTAINER = "ZGYD <noreply@example.com>"
 VERSION_RE = re.compile(r"^[0-9][A-Za-z0-9.+~-]*$")
 FORBIDDEN_NAMES = ("api-key.txt", "__pycache__", ".DS_Store")
 FORBIDDEN_SUFFIXES = (".pyc", ".pyo", ".db")
+BINARY_SUFFIXES = (".png", ".ico", ".jpg", ".gif", ".gz", ".xz", ".so", ".pyc")
 
 
 def _ignore(directory, names):
@@ -77,6 +79,14 @@ def _check_no_forbidden(stage):
             raise SystemExit("拒绝打包用户数据或缓存：%s" % path)
 
 
+def _normalize_line_endings(root):
+    for path in root.rglob("*"):
+        if path.is_file() and path.suffix.lower() not in BINARY_SUFFIXES:
+            data = path.read_bytes()
+            if b"\r" in data:
+                path.write_bytes(data.replace(b"\r\n", b"\n").replace(b"\r", b"\n"))
+
+
 def _apply_modes(stage, executable):
     for path in sorted(stage.rglob("*")):
         if path.is_dir():
@@ -117,6 +127,16 @@ def _build(stage, output):
         raise SystemExit("dpkg-deb 构建失败（退出码 %d）" % result.returncode)
 
 
+def _check_control_line_endings(output):
+    with TemporaryDirectory() as directory:
+        result = subprocess.run(["dpkg-deb", "-e", str(output), directory])
+        if result.returncode != 0:
+            raise SystemExit("dpkg-deb 解包控制区失败（退出码 %d）" % result.returncode)
+        for name in ("postinst", "control"):
+            if b"\r" in (Path(directory) / name).read_bytes():
+                raise SystemExit("归档的 DEBIAN/%s 含有 CR，必须使用 LF 行尾" % name)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--version", default=DEFAULT_VERSION)
@@ -153,6 +173,7 @@ def main():
     shutil.copy2(DEB_DIR / "postinst", control_dir / "postinst")
 
     _check_no_forbidden(stage)
+    _normalize_line_endings(root)
     _apply_modes(root, {control_dir / "postinst"})
 
     output = ROOT / "dist" / "linux" / ("%s_%s_%s.deb" % (PACKAGE, version, arch))
@@ -161,6 +182,7 @@ def main():
         output.unlink()
 
     _build(root, output)
+    _check_control_line_endings(output)
 
     print("STAGE %s" % root)
     print("BUILT %s" % output)
