@@ -51,7 +51,17 @@ def connect():
 def init():
     if sys.platform == "win32" and not os.environ.get("TODO_QUADRANT_DB"):
         _migrate_windows_db()
-    conn = connect()
+    with closing(connect()) as conn, conn:
+        _init_schema(conn)
+        conn.execute("BEGIN IMMEDIATE")
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(tasks)")}
+        if "hide_when_collapsed" not in columns:
+            conn.execute(
+                "ALTER TABLE tasks ADD COLUMN hide_when_collapsed INTEGER NOT NULL DEFAULT 0"
+            )
+
+
+def _init_schema(conn):
     conn.executescript(
         """
         CREATE TABLE IF NOT EXISTS tasks (
@@ -66,7 +76,8 @@ def init():
             reminded     INTEGER NOT NULL DEFAULT 0,
             sort_order   INTEGER NOT NULL DEFAULT 0,
             created_at   TEXT    NOT NULL,
-            completed_at TEXT
+            completed_at TEXT,
+            hide_when_collapsed INTEGER NOT NULL DEFAULT 0
         );
         CREATE INDEX IF NOT EXISTS idx_tasks_open ON tasks(done, important, urgent);
         CREATE TABLE IF NOT EXISTS settings (
@@ -75,20 +86,19 @@ def init():
         );
         """
     )
-    conn.commit()
-    conn.close()
 
 
-def _now():
-    return datetime.datetime.now().isoformat(timespec="seconds")
+def _now(timespec="seconds"):
+    return datetime.datetime.now().isoformat(timespec=timespec)
 
 
-def add_task(title, note="", important=0, urgent=0, dir_path=None, due_at=None):
+def add_task(title, note="", important=0, urgent=0, dir_path=None, due_at=None,
+             hide_when_collapsed=False):
     conn = connect()
     cur = conn.execute(
-        "INSERT INTO tasks (title, note, important, urgent, dir_path, due_at, done, reminded, sort_order, created_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, 0, 0, 0, ?)",
-        (title, note, int(important), int(urgent), dir_path, due_at, _now()),
+        "INSERT INTO tasks (title, note, important, urgent, dir_path, due_at, created_at, hide_when_collapsed) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (title, note, int(important), int(urgent), dir_path, due_at, _now(), int(hide_when_collapsed)),
     )
     conn.commit()
     task_id = cur.lastrowid
@@ -111,7 +121,7 @@ def list_tasks():
 
 
 def update_task(task_id, **fields):
-    allowed = {"title", "note", "important", "urgent", "dir_path", "due_at"}
+    allowed = {"title", "note", "important", "urgent", "dir_path", "due_at", "hide_when_collapsed"}
     updates = {k: v for k, v in fields.items() if k in allowed}
     if "due_at" in updates:
         updates["reminded"] = 0  # 改期后重置提醒
@@ -135,7 +145,7 @@ def set_done(task_id, done):
     conn = connect()
     conn.execute(
         "UPDATE tasks SET done = ?, completed_at = ? WHERE id = ?",
-        (int(done), _now() if done else None, task_id),
+        (int(done), _now("microseconds") if done else None, task_id),
     )
     conn.commit()
     conn.close()

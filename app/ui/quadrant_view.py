@@ -7,22 +7,12 @@ from PyQt5.QtWidgets import (
 )
 
 from app import db
+from app.quadrants import QUADRANTS, quadrant_of
 from app.ui.task_dialog import TaskDialog
 from app.ui.task_row import TaskRow
 
 
-QUADRANTS = {
-    0: {"name": "重要·紧急", "important": 1, "urgent": 1},
-    1: {"name": "重要·不紧急", "important": 1, "urgent": 0},
-    2: {"name": "不重要·紧急", "important": 0, "urgent": 1},
-    3: {"name": "不重要·不紧急", "important": 0, "urgent": 0},
-}
 QUADRANT_ORDER = [0, 1, 2, 3]
-_QMAP = {(1, 1): 0, (1, 0): 1, (0, 1): 2, (0, 0): 3}
-
-
-def quadrant_of(important, urgent):
-    return _QMAP[(1 if important else 0, 1 if urgent else 0)]
 
 
 class TaskList(QListWidget):
@@ -247,9 +237,7 @@ class QuadrantView(QWidget):
     def new_task(self, quadrant=None):
         dlg = TaskDialog(default_quadrant=quadrant, parent=self.window())
         if dlg.exec_() == QDialog.Accepted:
-            d = dlg.result_data()
-            db.add_task(d["title"], d["note"], d["important"], d["urgent"],
-                        d["dir_path"], d["due_at"])
+            db.add_task(**dlg.result_data())
             self._schedule_reload()
 
     def move_task_to_quadrant(self, task_id, quadrant):

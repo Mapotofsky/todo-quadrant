@@ -1,4 +1,4 @@
-"""AI 接口配置读写。"""
+"""应用设置读写。"""
 import os
 
 from app import db
@@ -7,9 +7,19 @@ AI_BASE_URL_KEY = "ai_base_url"
 AI_API_KEY_KEY = "ai_api_key"
 AI_MODEL_KEY = "ai_model"
 AI_PROMPT_KEY = "ai_system_prompt"
+ARCHIVE_DIR_KEY = "archive_dir"
 
 DEFAULT_BASE_URL = "https://api.xiaomimimo.com/v1"
 DEFAULT_MODEL = "mimo-v2.6-flash"
+DEFAULT_ARCHIVE_DIR = ""
+
+
+def get_archive_dir():
+    return db.get_setting(ARCHIVE_DIR_KEY, DEFAULT_ARCHIVE_DIR)
+
+
+def set_archive_dir(directory):
+    db.set_setting(ARCHIVE_DIR_KEY, directory.strip())
 
 
 def get_ai_config():

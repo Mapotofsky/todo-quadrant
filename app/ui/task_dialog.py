@@ -3,6 +3,7 @@ import os
 import shutil
 import subprocess
 import sys
+from datetime import datetime
 
 from PyQt5.QtCore import Qt, QDateTime, QTimer
 from PyQt5.QtGui import QPalette
@@ -11,6 +12,7 @@ from PyQt5.QtWidgets import (
     QHBoxLayout, QPushButton, QFileDialog, QLabel, QDateTimeEdit, QWidget,
 )
 
+from app.quadrants import QUADRANTS, quadrant_of
 from app.ui.button_box import FixedTextButtonBox
 
 _PICKER_TITLE = "选择关联目录"
@@ -107,12 +109,8 @@ def _tune_native_picker(dialog, attempt=0):
         _style_picker_window(dialog)
 
 
-_QUAD_NAME = {
-    (1, 1): "重要·紧急",
-    (1, 0): "重要·不紧急",
-    (0, 1): "不重要·紧急",
-    (0, 0): "不重要·不紧急",
-}
+def _display_time(value, missing):
+    return datetime.fromisoformat(value).isoformat(sep=" ", timespec="seconds") if value else missing
 
 
 class TaskDialog(QDialog):
@@ -142,6 +140,10 @@ class TaskDialog(QDialog):
         self.quad_hint.setObjectName("quad_hint")
         quad.addWidget(self.quad_hint)
         form.addRow("象限", quad)
+
+        if task is not None:
+            form.addRow("录入时间", QLabel(_display_time(task.get("created_at"), "—")))
+            form.addRow("完成时间", QLabel(_display_time(task.get("completed_at"), "未完成")))
 
         self.options_btn = QPushButton("更多选项")
         self.options_btn.setCheckable(True)
@@ -179,6 +181,9 @@ class TaskDialog(QDialog):
         due_row.addWidget(self.due_edit, 1)
         details.addRow("提醒", due_row)
 
+        self.hide_when_collapsed = QCheckBox("收起时隐藏")
+        details.addRow(self.hide_when_collapsed)
+
         self.imp_check.stateChanged.connect(self._update_hint)
         self.urg_check.stateChanged.connect(self._update_hint)
 
@@ -194,13 +199,12 @@ class TaskDialog(QDialog):
         elif prefill is not None:
             self._fill(prefill)
         elif default_quadrant is not None:
-            from app.ui.quadrant_view import QUADRANTS
             q = QUADRANTS[default_quadrant]
             self.imp_check.setChecked(bool(q["important"]))
             self.urg_check.setChecked(bool(q["urgent"]))
         self._update_hint()
         has_details = bool(self.note_edit.toPlainText() or self.dir_edit.text()
-                           or self.due_check.isChecked())
+                           or self.due_check.isChecked() or self.hide_when_collapsed.isChecked())
         self.options_btn.setChecked(has_details)
         self._show_options(has_details)
         self.options_btn.toggled.connect(self._show_options)
@@ -218,6 +222,7 @@ class TaskDialog(QDialog):
         self.note_edit.setPlainText(data.get("note", ""))
         self.imp_check.setChecked(bool(data.get("important")))
         self.urg_check.setChecked(bool(data.get("urgent")))
+        self.hide_when_collapsed.setChecked(bool(data.get("hide_when_collapsed")))
         if data.get("dir_path"):
             self.dir_edit.setText(data["dir_path"])
         if data.get("due_at"):
@@ -261,9 +266,8 @@ class TaskDialog(QDialog):
         picker.deleteLater()
 
     def _update_hint(self):
-        key = (1 if self.imp_check.isChecked() else 0,
-               1 if self.urg_check.isChecked() else 0)
-        self.quad_hint.setText("→ " + _QUAD_NAME[key])
+        quadrant = quadrant_of(self.imp_check.isChecked(), self.urg_check.isChecked())
+        self.quad_hint.setText("→ " + QUADRANTS[quadrant]["name"])
 
     def _on_accept(self):
         if not self.title_edit.text().strip():
@@ -280,4 +284,5 @@ class TaskDialog(QDialog):
             "urgent": 1 if self.urg_check.isChecked() else 0,
             "dir_path": self.dir_edit.text().strip() or None,
             "due_at": self.due_edit.dateTime().toString("yyyy-MM-dd HH:mm") if self.due_check.isChecked() else None,
+            "hide_when_collapsed": self.hide_when_collapsed.isChecked(),
         }

@@ -1,5 +1,6 @@
 """悬浮窗容器：无边框、半透明、始终置顶、可收起、可拖动。"""
 from datetime import datetime
+import sqlite3
 import subprocess
 import sys
 
@@ -9,9 +10,10 @@ from PyQt5.QtWidgets import (
     QApplication, QMenu, QSizeGrip, QDialog, QWIDGETSIZE_MAX,
 )
 
-from app import db
+from app import archive, config, db
 from app.remind import Reminder, parse_due
 from app.ui.icons import icon_button
+from app.ui.message import confirm, warn
 from app.ui.quadrant_view import QuadrantView
 from app.ui.task_row import DeadlineLabel, ElidedLabel
 
@@ -49,6 +51,8 @@ def collapsed_preview(tasks):
     open_tasks = [task for task in tasks if not task["done"]]
     candidates = []
     for task in open_tasks:
+        if task.get("hide_when_collapsed"):
+            continue
         due = parse_due(task["due_at"])
         if due is not None:
             priority = PREVIEW_PRIORITY.get((task["important"], task["urgent"]), 2)
@@ -100,12 +104,15 @@ class FloatingWindow(QWidget):
         self.ai_btn.setToolTip("用 AI 从粘贴的文本提取任务")
         self.add_btn = QPushButton("＋ 新建")
         self.add_btn.setObjectName("add_btn")
+        self.archive_btn = QPushButton("归档")
+        self.archive_btn.setToolTip("将已完成任务归档为 Markdown")
         self.settings_btn = icon_button("settings", "设置", "icon_btn")
         self.collapse_btn = icon_button("collapse", "收起", "icon_btn")
         tb.addWidget(self.title_lbl)
         tb.addStretch(1)
         tb.addWidget(self.ai_btn)
         tb.addWidget(self.add_btn)
+        tb.addWidget(self.archive_btn)
         tb.addWidget(self.settings_btn)
         tb.addWidget(self.collapse_btn)
 
@@ -141,6 +148,7 @@ class FloatingWindow(QWidget):
         self.add_btn.clicked.connect(lambda: self.quadrant.new_task())
         self.collapsed_add_btn.clicked.connect(lambda: self.quadrant.new_task())
         self.ai_btn.clicked.connect(self._ai_new)
+        self.archive_btn.clicked.connect(self._archive_completed)
         self.settings_btn.clicked.connect(self._settings)
         self.quadrant.tasks_changed.connect(self._update_preview)
 
@@ -154,8 +162,7 @@ class FloatingWindow(QWidget):
         if dlg.exec_() == QDialog.Accepted and dlg.result:
             tdlg = TaskDialog(prefill=dlg.result, parent=self)
             if tdlg.exec_() == QDialog.Accepted:
-                d = tdlg.result_data()
-                db.add_task(d["title"], d["note"], d["important"], d["urgent"], d["dir_path"], d["due_at"])
+                db.add_task(**tdlg.result_data())
                 self.quadrant.reload()
 
     def _settings(self):
@@ -163,6 +170,27 @@ class FloatingWindow(QWidget):
         dlg = SettingsDialog(parent=self)
         if dlg.exec_() == QDialog.Accepted:
             dlg.save()
+
+    def _archive_completed(self):
+        directory = config.get_archive_dir()
+        if not directory:
+            warn(self, "归档", "请先在「设置」中填写归档目录。")
+            return
+        if not confirm(self, "归档", "导出已完成的任务并将它们从列表移除？", yes="归档"):
+            return
+        try:
+            path = archive.archive_completed(directory)
+        except archive.ArchiveCommitError as exc:
+            warn(self, "归档未完成", f"已生成归档文件，但未能移除已完成任务。\n\n{exc.path}")
+            return
+        except (OSError, sqlite3.Error) as exc:
+            warn(self, "归档失败", f"已完成任务仍保留在列表中。\n\n{exc}")
+            return
+        self.quadrant.reload()
+        if path is None:
+            warn(self, "归档", "暂无已完成任务。")
+        else:
+            warn(self, "归档完成", f"归档文件已保存。\n\n{path}")
 
     def _refresh_deadlines(self):
         now = datetime.now()
@@ -208,6 +236,7 @@ class FloatingWindow(QWidget):
         self._refresh_deadlines()
 
     def _update_preview(self, tasks):
+        self.archive_btn.setEnabled(any(task["done"] for task in tasks))
         title, self._preview_due_at = collapsed_preview(tasks)
         self.preview_title.setFullText(title)
         self.preview_due.update_deadline(self._preview_due_at)

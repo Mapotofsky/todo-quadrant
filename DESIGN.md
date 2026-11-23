@@ -156,7 +156,8 @@ CREATE TABLE tasks (
   reminded     INTEGER NOT NULL DEFAULT 0,    -- 到期提醒是否已发，避免重复
   sort_order   INTEGER NOT NULL DEFAULT 0,    -- 象限内手动排序
   created_at   TEXT    NOT NULL,
-  completed_at TEXT
+  completed_at TEXT,
+  hide_when_collapsed INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX idx_tasks_open ON tasks(done, important, urgent);
 
@@ -187,7 +188,7 @@ CREATE TABLE settings (
 - 拖动：无边框，在顶部手柄区（及空白处）实现 `mousePressEvent`/`mouseMoveEvent` 拖动整窗；记忆位置。
 - 置顶兜底：若 `_NET_WM_STATE_ABOVE` 在个别场景失效，用 `wmctrl -r <win> -b add,above` 或 `X11BypassWindowManagerHint` 兜底（spike 阶段验证）。
 - **展开态**：2×2 四象限网格（见下）。
-- **收起态**：可拖动的单行悬浮条，依次显示快捷新增、任务标题、截止状态、展开。候选为未完成且有截止时间的任务，优先级为重要紧急、不重要但紧急、其余象限。取首个有候选组中截止时间最早的任务，同截止时间沿用列表顺序。无候选时显示待办数或「暂无待办」。
+- **收起态**：可拖动的单行悬浮条，依次显示快捷新增、任务标题、截止状态、展开。候选为未完成、有截止时间且未勾选「收起时隐藏」的任务，优先级为重要紧急、不重要但紧急、其余象限。取首个有候选组中截止时间最早的任务，同截止时间沿用列表顺序。无候选时显示全部未完成任务数或「暂无待办」。
 
 ### 8.2 四象限配色（经典 Eisenhower 约定）
 

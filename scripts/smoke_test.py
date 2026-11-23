@@ -1,7 +1,9 @@
 """无头冒烟测试：用 offscreen 平台验证数据层、AI 解析、提醒与 UI 构造。"""
 import os
 import sys
+from contextlib import closing
 from datetime import datetime
+from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
@@ -11,7 +13,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt5.QtCore import Qt  # noqa: E402
 from PyQt5.QtTest import QTest  # noqa: E402
-from PyQt5.QtWidgets import QApplication  # noqa: E402
+from PyQt5.QtWidgets import QApplication, QLabel  # noqa: E402
+from app import archive  # noqa: E402
 from app import db  # noqa: E402
 from app import config  # noqa: E402
 from app import ai  # noqa: E402
@@ -44,22 +47,132 @@ def check_preview():
     assert collapsed_preview([priority, task("同组更早到期", later, 1, 1)]) == ("同组更早到期", later)
     assert collapsed_preview([no_date, done]) == ("1 项待办", None)
     assert collapsed_preview([done]) == ("暂无待办", None)
+    hidden = dict(priority, hide_when_collapsed=True)
+    assert collapsed_preview([hidden, urgent]) == ("紧急", later)
+    assert collapsed_preview([hidden, no_date]) == ("2 项待办", None)
     assert deadline_status(later, now=datetime(2000, 1, 4, 9)) == ("逾期 2 天", True)
     assert deadline_status(later, now=datetime(2000, 1, 2, 8, 59))[1] is False
     assert deadline_status(later, now=datetime(2000, 1, 2, 9))[1] is True
+
+
+def check_task_migration():
+    with TemporaryDirectory() as directory, patch.dict(
+        os.environ, TODO_QUADRANT_DB=os.path.join(directory, "old.db")
+    ):
+        with closing(db.connect()) as conn, conn:
+            conn.executescript("""
+                CREATE TABLE tasks (
+                    id INTEGER PRIMARY KEY, title TEXT NOT NULL, note TEXT DEFAULT '',
+                    important INTEGER NOT NULL DEFAULT 0, urgent INTEGER NOT NULL DEFAULT 0,
+                    dir_path TEXT, due_at TEXT, done INTEGER NOT NULL DEFAULT 0,
+                    reminded INTEGER NOT NULL DEFAULT 0, sort_order INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL, completed_at TEXT
+                );
+                INSERT INTO tasks (title, created_at, due_at)
+                VALUES ('旧任务', '2026-01-01T09:00:00', '2026-01-02 09:00');
+            """)
+        db.init()
+        task = db.get_task(1)
+        assert task["created_at"] == "2026-01-01T09:00:00"
+        assert task["hide_when_collapsed"] == 0
+        assert collapsed_preview([task]) == ("旧任务", "2026-01-02 09:00")
+        db.update_task(1, hide_when_collapsed=True)
+        db.init()
+        assert db.get_task(1)["hide_when_collapsed"] == 1
+
+
+def check_archive():
+    with TemporaryDirectory() as directory, patch.dict(
+        os.environ, TODO_QUADRANT_DB=os.path.join(directory, "todo.db")
+    ):
+        db.init()
+        export_dir = Path(directory) / "归档"
+        export_dir.mkdir()
+        settings = SettingsDialog()
+        assert settings.archive_dir.text() == ""
+        settings.archive_dir.setText(str(export_dir))
+        settings.save()
+        reopened = SettingsDialog()
+        assert reopened.archive_dir.text() == str(export_dir)
+        pending = db.add_task("进行中")
+        later = db.add_task("稍晚完成", urgent=1, hide_when_collapsed=True)
+        early = db.add_task("先完成", note="第一行\n第二行", important=1, urgent=1,
+                            dir_path="/work", due_at="2026-01-01 10:00")
+        tied = db.add_task("同一时刻完成", important=1)
+        next_day = db.add_task("次日完成")
+        for task_id, timestamp in (
+            (later, "2026-01-01T10:00:00.000002"), (early, "2026-01-01T10:00:00.000001"),
+            (tied, "2026-01-01T10:00:00.000001"), (next_day, "2026-01-02T10:00:00"),
+        ):
+            with patch("app.db._now", return_value=timestamp):
+                db.set_done(task_id, True)
+
+        window = FloatingWindow()
+        assert window.archive_btn.isEnabled()
+        with patch("app.ui.floating_window.confirm", return_value=False):
+            window.archive_btn.click()
+        assert not list(export_dir.iterdir())
+
+        with patch("app.ui.floating_window.confirm", return_value=True), \
+                patch("app.ui.floating_window.warn") as message:
+            with patch("pathlib.Path.replace", side_effect=PermissionError("文件发布失败")):
+                window.archive_btn.click()
+                assert message.call_args.args[1] == "归档失败"
+            assert not list(export_dir.iterdir())
+            assert len(db.list_tasks()) == 5
+            window.archive_btn.click()
+            assert message.call_args.args[1] == "归档完成"
+        assert not window.archive_btn.isEnabled()
+        assert sum(lst.count() for lst in window.quadrant.lists.values()) == 1
+        assert [task["id"] for task in db.list_tasks()] == [pending]
+        first, = export_dir.glob("*.md")
+        assert first.read_text(encoding="utf-8") == (
+            "# 已完成\n\n## 2026-01-01\n\n### 先完成\n\n重要·紧急\n\n"
+            "第一行\n第二行\n\n/work\n\n2026-01-01 10:00\n\n"
+            "### 同一时刻完成\n\n重要·不紧急\n\n### 稍晚完成\n\n不重要·紧急\n\n"
+            "## 2026-01-02\n\n### 次日完成\n\n不重要·不紧急\n"
+        )
+        assert archive.archive_completed(export_dir) is None
+
+        db.set_done(pending, True)
+        with closing(db.connect()) as conn, conn:
+            conn.execute("""
+                CREATE TRIGGER reject_delete BEFORE DELETE ON tasks
+                BEGIN SELECT RAISE(ABORT, 'delete failed'); END;
+            """)
+        try:
+            archive.archive_completed(export_dir)
+        except archive.ArchiveCommitError as exc:
+            second = exc.path
+            assert second.is_file() and second != first
+        else:
+            raise AssertionError("应报告已生成的归档文件")
+        assert db.get_task(pending)["done"] == 1
+        with closing(db.connect()) as conn, conn:
+            conn.execute("DROP TRIGGER reject_delete")
+        third = archive.archive_completed(export_dir)
+        assert len({first, second, third}) == 3
+        assert all(path.is_file() for path in (first, second, third))
+        assert not db.list_tasks()
+        window.close()
 
 
 def main():
     app = QApplication([])
     db.init()
     check_preview()
+    check_task_migration()
+    check_archive()
 
     # ---- 数据层（含截止时间）----
     tid = db.add_task("写周报", note="周五前", important=1, urgent=1, due_at="2099-01-01 10:00")
+    created = db.get_task(tid)["created_at"]
+    assert datetime.fromisoformat(created)
     assert db.get_task(tid)["title"] == "写周报"
     assert db.get_task(tid)["due_at"] == "2099-01-01 10:00"
     db.update_task(tid, note="周五下班前")
     assert db.get_task(tid)["note"] == "周五下班前"
+    assert db.get_task(tid)["created_at"] == created
     db.update_task(tid, dir_path="/tmp")
     assert db.get_task(tid)["dir_path"] == "/tmp"
 
@@ -120,9 +233,12 @@ def main():
     app.setActiveWindow(win)
     win.quadrant.focus_task(tid)
     assert win.focusWidget() is lst, (win.focusWidget(), app.focusWidget())
-    QTest.keyClick(lst, Qt.Key_Space)
+    with patch("app.db._now", return_value="2026-01-01T10:00:00.000001") as clock:
+        QTest.keyClick(lst, Qt.Key_Space)
+        clock.assert_called_once_with("microseconds")
     app.processEvents()
     assert db.get_task(tid)["done"] == 1
+    assert db.get_task(tid)["completed_at"] == "2026-01-01T10:00:00.000001"
     assert win.focusWidget() is lst and lst.currentItem().data(Qt.UserRole) == tid, (
         app.activeWindow(), app.focusWidget(), lst.currentRow(), lst.currentItem().data(Qt.UserRole))
     assert lst.item(0).data(Qt.UserRole) == c_id
@@ -130,6 +246,20 @@ def main():
     QTest.keyClick(lst, Qt.Key_Space)
     app.processEvents()
     assert db.get_task(tid)["done"] == 0
+    assert db.get_task(tid)["completed_at"] is None
+    edited = TaskDialog(task=db.get_task(tid))
+    assert "未完成" in {label.text() for label in edited.findChildren(QLabel)}
+    row = lst.itemWidget(lst.currentItem())
+    with patch("app.db._now", return_value="2026-01-01T10:00:00.000002"):
+        row.check.click()
+    app.processEvents()
+    updated = db.get_task(tid)
+    assert updated["completed_at"] == "2026-01-01T10:00:00.000002"
+    edited = TaskDialog(task=updated)
+    labels = {label.text() for label in edited.findChildren(QLabel)}
+    assert {created.replace("T", " "), "2026-01-01 10:00:00"} <= labels
+    db.set_done(tid, False)
+    win.quadrant.reload()
 
     # ---- 对话框（含 AI 预填 + 截止）----
     dlg = TaskDialog(default_quadrant=0)
@@ -139,6 +269,27 @@ def main():
     assert dlg.result_data()["urgent"] == 1
     assert dlg.options.isHidden()
     assert dlg.focusWidget() is dlg.title_edit
+    assert dlg.result_data()["hide_when_collapsed"] is False
+
+    dlg.hide_when_collapsed.setChecked(True)
+    new_id = db.add_task(**dlg.result_data())
+    edited = TaskDialog(task=db.get_task(new_id))
+    assert edited.hide_when_collapsed.isChecked() and not edited.options.isHidden()
+    edited.hide_when_collapsed.setChecked(False)
+    db.update_task(new_id, **edited.result_data())
+    assert db.get_task(new_id)["hide_when_collapsed"] == 0
+    db.delete_task(new_id)
+
+    edited = TaskDialog(task=db.get_task(tid))
+    edited.hide_when_collapsed.setChecked(True)
+    db.update_task(tid, **edited.result_data())
+    win.quadrant.reload()
+    assert win._preview_due_at is None
+    assert collapsed_preview(db.list_tasks()) == ("5 项待办", None)
+    edited.hide_when_collapsed.setChecked(False)
+    db.update_task(tid, **edited.result_data())
+    win.quadrant.reload()
+    assert win._preview_due_at == "2099-01-02 10:00"
 
     dlg2 = TaskDialog(prefill={"title": "预填", "note": "n", "important": 1, "urgent": 0, "due_at": "2099-05-05 08:30"})
     assert dlg2.result_data()["title"] == "预填"
